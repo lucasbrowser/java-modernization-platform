@@ -252,7 +252,7 @@ Para executar o projeto localmente:
 Clone o repositório:
 
 ```bash
-git clone https://github.com/SEU-USUARIO/java-modernization-platform.git
+git clone https://github.com/lucasbrowser/java-modernization-platform.git
 ```
 
 Entre no diretório:
