@@ -1,1 +1,27 @@
-package com.github.lucasoliveira.platform.order.dto;import com.github.lucasoliveira.platform.order.entity.OrderStatus;import java.math.BigDecimal;import java.time.OffsetDateTime;import java.util.*;public record OrderResponse(UUID id,UUID customerId,OrderStatus status,BigDecimal totalAmount,OffsetDateTime createdAt,List<OrderItemResponse> items) {public record OrderItemResponse(UUID productId,String sku,String productName,Integer quantity,BigDecimal unitPrice,BigDecimal subtotal){}}
+package com.github.lucasoliveira.platform.order.dto;
+
+import com.github.lucasoliveira.platform.order.entity.OrderStatus;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+
+public record OrderResponse(
+        UUID id,
+        UUID customerId,
+        OrderStatus status,
+        BigDecimal totalAmount,
+        OffsetDateTime createdAt,
+        List<OrderItemResponse> items
+) {
+
+    public record OrderItemResponse(
+            UUID productId,
+            String sku,
+            String productName,
+            Integer quantity,
+            BigDecimal unitPrice,
+            BigDecimal total
+    ) {
+    }
+}

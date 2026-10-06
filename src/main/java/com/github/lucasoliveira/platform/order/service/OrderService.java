@@ -1,7 +1,64 @@
 package com.github.lucasoliveira.platform.order.service;
-import com.github.lucasoliveira.platform.common.exception.ResourceNotFoundException;import com.github.lucasoliveira.platform.customer.entity.Customer;import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;import com.github.lucasoliveira.platform.order.dto.*;import com.github.lucasoliveira.platform.order.entity.*;import com.github.lucasoliveira.platform.order.repository.OrderRepository;import com.github.lucasoliveira.platform.product.entity.Product;import com.github.lucasoliveira.platform.product.repository.ProductRepository;import org.springframework.stereotype.Service;import org.springframework.transaction.annotation.Transactional;import java.math.BigDecimal;import java.util.*;
-@Service public class OrderService {private final OrderRepository orders;private final CustomerRepository customers;private final ProductRepository products;public OrderService(OrderRepository orders,CustomerRepository customers,ProductRepository products){this.orders=orders;this.customers=customers;this.products=products;}
-@Transactional public OrderResponse create(OrderRequest r){Customer c=customers.findById(r.customerId()).orElseThrow(()->new ResourceNotFoundException("Customer not found: "+r.customerId()));Order o=new Order();o.setCustomer(c);o.setStatus(OrderStatus.CREATED);BigDecimal total=BigDecimal.ZERO;for(OrderItemRequest ir:r.items()){Product p=products.findById(ir.productId()).orElseThrow(()->new ResourceNotFoundException("Product not found: "+ir.productId()));if(!Boolean.TRUE.equals(p.getActive()))throw new IllegalArgumentException("Product is inactive: "+p.getSku());if(p.getStock()<ir.quantity())throw new IllegalArgumentException("Insufficient stock for product: "+p.getSku());p.setStock(p.getStock()-ir.quantity());OrderItem item=new OrderItem();item.setOrder(o);item.setProduct(p);item.setQuantity(ir.quantity());item.setUnitPrice(p.getPrice());o.getItems().add(item);total=total.add(p.getPrice().multiply(BigDecimal.valueOf(ir.quantity())));}o.setTotalAmount(total);return map(orders.save(o));}
-@Transactional(readOnly=true)public OrderResponse findById(UUID id){return map(orders.findById(id).orElseThrow(()->new ResourceNotFoundException("Order not found: "+id)));}
-@Transactional(readOnly=true)public List<OrderResponse> findByCustomer(UUID id){return orders.findByCustomerId(id).stream().map(this::map).toList();}
-private OrderResponse map(Order o){return new OrderResponse(o.getId(),o.getCustomer().getId(),o.getStatus(),o.getTotalAmount(),o.getCreatedAt(),o.getItems().stream().map(i->new OrderResponse.OrderItemResponse(i.getProduct().getId(),i.getProduct().getSku(),i.getProduct().getName(),i.getQuantity(),i.getUnitPrice(),i.getUnitPrice().multiply(BigDecimal.valueOf(i.getQuantity())))).toList());}}
+
+import com.github.lucasoliveira.platform.common.exception.ResourceNotFoundException;
+import com.github.lucasoliveira.platform.customer.entity.Customer;
+import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;
+import com.github.lucasoliveira.platform.order.dto.*;
+import com.github.lucasoliveira.platform.order.entity.*;
+import com.github.lucasoliveira.platform.order.repository.OrderRepository;
+import com.github.lucasoliveira.platform.product.entity.Product;
+import com.github.lucasoliveira.platform.product.repository.ProductRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.math.BigDecimal;
+import java.util.*;
+
+@Service
+public class OrderService {
+    private final OrderRepository orders;
+    private final CustomerRepository customers;
+    private final ProductRepository products;
+    public OrderService(OrderRepository orders, CustomerRepository customers, ProductRepository products) {
+        this.orders = orders;
+        this.customers = customers;
+        this.products = products;
+    }
+    @Transactional
+    public OrderResponse create(OrderRequest r) {
+        Customer c = customers.findById(r.customerId()).orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + r.customerId()));
+        Order o = new Order();
+        o.setCustomer(c);
+        o.setStatus(OrderStatus.CREATED);
+        BigDecimal total = BigDecimal.ZERO;
+        for (OrderItemRequest ir : r.items()) {
+            Product p = products.findById(ir.productId()).orElseThrow(() -> new ResourceNotFoundException("Product not found: " + ir.productId()));
+            if (!Boolean.TRUE.equals(p.getActive()))
+            throw new IllegalArgumentException("Product is inactive: " + p.getSku());
+            if (p.getStock()<ir.quantity())
+            throw new IllegalArgumentException("Insufficient stock for product: " + p.getSku());
+            p.setStock(p.getStock() - ir.quantity());
+            OrderItem item = new OrderItem();
+            item.setOrder(o);
+            item.setProduct(p);
+            item.setQuantity(ir.quantity());
+            item.setUnitPrice(p.getPrice());
+            o.getItems().add(item);
+            total = total.add(p.getPrice().multiply(BigDecimal.valueOf(ir.quantity())));
+        }
+        o.setTotalAmount(total);
+        return map(orders.save(o));
+    }
+    @Transactional(readOnly = true)
+    public OrderResponse findById(UUID id) {
+        return map(orders.findById(id).orElseThrow(() -> new ResourceNotFoundException("Order not found: " + id)));
+    }
+    @Transactional(readOnly = true)
+    public List<OrderResponse> findByCustomer(UUID id) {
+        return orders.findByCustomerId(id).stream()
+                .map(this::map)
+                .toList();
+    }
+    private OrderResponse map(Order o) {
+        return new OrderResponse(o.getId(), o.getCustomer().getId(), o.getStatus(), o.getTotalAmount(), o.getCreatedAt(), o.getItems().stream().map(i -> new OrderResponse.OrderItemResponse(i.getProduct().getId(), i.getProduct().getSku(), i.getProduct().getName(), i.getQuantity(), i.getUnitPrice(), i.getUnitPrice().multiply(BigDecimal.valueOf(i.getQuantity())))).toList());
+    }
+}

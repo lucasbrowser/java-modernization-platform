@@ -1,4 +1,68 @@
 package com.github.lucasoliveira.platform.order.entity;
-import com.github.lucasoliveira.platform.customer.entity.Customer; import jakarta.persistence.*; import java.math.BigDecimal;import java.time.OffsetDateTime;import java.util.*;
-@Entity @Table(name="orders") public class Order { @Id @GeneratedValue(strategy=GenerationType.UUID) UUID id; @ManyToOne(fetch=FetchType.LAZY,optional=false) @JoinColumn(name="customer_id",nullable=false) Customer customer; @Enumerated(EnumType.STRING) @Column(nullable=false) OrderStatus status; @Column(name="total_amount",nullable=false,precision=15,scale=2) BigDecimal totalAmount; @Column(name="created_at",nullable=false) OffsetDateTime createdAt; @Column(name="updated_at",nullable=false) OffsetDateTime updatedAt; @OneToMany(mappedBy="order",cascade=CascadeType.ALL,orphanRemoval=true) List<OrderItem> items=new ArrayList<>(); @PrePersist void pre(){createdAt=OffsetDateTime.now();updatedAt=createdAt;} @PreUpdate void upd(){updatedAt=OffsetDateTime.now();}
- public UUID getId(){return id;}public Customer getCustomer(){return customer;}public void setCustomer(Customer v){customer=v;}public OrderStatus getStatus(){return status;}public void setStatus(OrderStatus v){status=v;}public BigDecimal getTotalAmount(){return totalAmount;}public void setTotalAmount(BigDecimal v){totalAmount=v;}public OffsetDateTime getCreatedAt(){return createdAt;}public OffsetDateTime getUpdatedAt(){return updatedAt;}public List<OrderItem> getItems(){return items;}}
+
+import com.github.lucasoliveira.platform.customer.entity.Customer;
+import jakarta.persistence.*;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.*;
+
+@Entity
+@Table(name = "orders")
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    UUID id;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "customer_id", nullable = false)
+    Customer customer;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    OrderStatus status;
+    @Column(name = "total_amount", nullable = false, precision = 15, scale = 2)
+    BigDecimal totalAmount;
+    @Column(name = "created_at", nullable = false)
+    OffsetDateTime createdAt;
+    @Column(name = "updated_at", nullable = false)
+    OffsetDateTime updatedAt;
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    List<OrderItem> items = new ArrayList<>();
+    @PrePersist
+    void pre() {
+        createdAt = OffsetDateTime.now();
+        updatedAt = createdAt;
+    }
+    @PreUpdate
+    void upd() {
+        updatedAt = OffsetDateTime.now();
+    }
+    public UUID getId() {
+        return id;
+    }
+    public Customer getCustomer() {
+        return customer;
+    }
+    public void setCustomer(Customer v) {
+        customer = v;
+    }
+    public OrderStatus getStatus() {
+        return status;
+    }
+    public void setStatus(OrderStatus v) {
+        status = v;
+    }
+    public BigDecimal getTotalAmount() {
+        return totalAmount;
+    }
+    public void setTotalAmount(BigDecimal v) {
+        totalAmount = v;
+    }
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+    public List<OrderItem> getItems() {
+        return items;
+    }
+}
