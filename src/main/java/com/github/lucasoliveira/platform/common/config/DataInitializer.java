@@ -1,0 +1,3 @@
+package com.github.lucasoliveira.platform.common.config;
+import com.github.lucasoliveira.platform.auth.entity.*;import com.github.lucasoliveira.platform.auth.repository.UserRepository;import org.springframework.boot.CommandLineRunner;import org.springframework.context.annotation.Bean;import org.springframework.context.annotation.Configuration;import org.springframework.security.crypto.password.PasswordEncoder;
+@Configuration public class DataInitializer { @Bean CommandLineRunner initAdmin(UserRepository repo, PasswordEncoder encoder){return args->{if(!repo.existsByEmailIgnoreCase("admin@platform.local")){User u=new User();u.setName("Administrator");u.setEmail("admin@platform.local");u.setPassword(encoder.encode("Admin@123"));u.setRole(Role.ADMIN);repo.save(u);}};}}

@@ -1,0 +1,1 @@
+package com.github.lucasoliveira.platform.order.dto;import jakarta.validation.Valid;import jakarta.validation.constraints.*;import java.util.List;import java.util.UUID;public record OrderRequest(@NotNull UUID customerId,@NotEmpty List<@Valid OrderItemRequest> items){}

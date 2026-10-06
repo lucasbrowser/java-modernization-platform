@@ -1,0 +1,1 @@
+package com.github.lucasoliveira.platform.order.repository; import com.github.lucasoliveira.platform.order.entity.Order;import org.springframework.data.jpa.repository.JpaRepository;import java.util.*;public interface OrderRepository extends JpaRepository<Order,UUID>{List<Order> findByCustomerId(UUID customerId);}
