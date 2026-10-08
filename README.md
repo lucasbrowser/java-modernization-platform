@@ -449,9 +449,9 @@ Deploy
 
 ### Fase 2 — Qualidade e arquitetura
 
-* [ ] Testcontainers
-* [ ] Testes de integração
-* [ ] Paginação
+* [x] Testcontainers
+* [x] Testes de integração
+* [x] Paginação
 * [ ] Cache
 * [ ] Idempotência
 * [ ] Concorrência no estoque
