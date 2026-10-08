@@ -14,6 +14,7 @@ import com.github.lucasoliveira.platform.product.entity.Product;
 import com.github.lucasoliveira.platform.product.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -69,7 +70,7 @@ class OrderServiceTest {
                 new OrderRequest(
                         customerId,
                         List.of(new OrderItemRequest(productId, 2))
-                )
+                ), "test-key-001"
         );
 
         assertEquals(
@@ -113,7 +114,7 @@ class OrderServiceTest {
                         new OrderRequest(
                                 customerId,
                                 List.of(new OrderItemRequest(productId, 2))
-                        )
+                        ), "test-key-002"
                 )
         );
 
@@ -153,7 +154,7 @@ class OrderServiceTest {
                         new OrderRequest(
                                 customerId,
                                 List.of(new OrderItemRequest(productId, 1))
-                        )
+                        ), "test-key-003"
                 )
         );
 
@@ -181,7 +182,7 @@ class OrderServiceTest {
                         new OrderRequest(
                                 customerId,
                                 List.of(new OrderItemRequest(productId, 1))
-                        )
+                        ), "test-key-004"
                 )
         );
 
@@ -213,7 +214,7 @@ class OrderServiceTest {
                         new OrderRequest(
                                 customerId,
                                 List.of(new OrderItemRequest(productId, 1))
-                        )
+                        ), "test-key-005"
                 )
         );
 
@@ -266,7 +267,7 @@ class OrderServiceTest {
                                 new OrderItemRequest(notebookId, 2),
                                 new OrderItemRequest(mouseId, 3)
                         )
-                )
+                ), "test-key-006"
         );
 
         assertEquals(
@@ -279,6 +280,100 @@ class OrderServiceTest {
         assertEquals(2, response.items().size());
 
         verify(orders).save(any(Order.class));
+    }
+
+    @Test
+    void shouldReturnExistingOrderWhenIdempotencyKeyAlreadyExists() {
+        UUID customerId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+
+        Customer customer = new Customer();
+
+        Order existingOrder = new Order();
+        existingOrder.setCustomer(customer);
+        existingOrder.setStatus(OrderStatus.CREATED);
+        existingOrder.setTotalAmount(new BigDecimal("500.00"));
+
+        when(orders.findByIdempotencyKey("test-key-007"))
+                .thenReturn(Optional.of(existingOrder));
+
+        OrderResponse response = service.create(
+                new OrderRequest(
+                        customerId,
+                        List.of()
+                ),
+                "test-key-007"
+        );
+
+        assertEquals(
+                OrderStatus.CREATED,
+                response.status()
+        );
+
+        assertEquals(
+                new BigDecimal("500.00"),
+                response.totalAmount()
+        );
+
+        verify(orders).findByIdempotencyKey("test-key-007");
+
+        verify(customers, never()).findById(any(UUID.class));
+        verify(products, never()).findById(any(UUID.class));
+        verify(orders, never()).save(any(Order.class));
+    }
+
+    @Test
+     void shouldCreateOrderAndStoreIdempotencyKey() {
+        UUID customerId = UUID.randomUUID();
+        UUID productId = UUID.randomUUID();
+
+        Customer customer = new Customer();
+
+        Product product = new Product();
+        product.setSku("KEYBOARD-001");
+        product.setName("Keyboard");
+        product.setPrice(new BigDecimal("150.00"));
+        product.setStock(10);
+        product.setActive(true);
+
+        when(orders.findByIdempotencyKey("test-key-008"))
+                .thenReturn(Optional.empty());
+
+        when(customers.findById(customerId))
+                .thenReturn(Optional.of(customer));
+
+        when(products.findById(productId))
+                .thenReturn(Optional.of(product));
+
+        when(orders.save(any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse response = service.create(
+                new OrderRequest(
+                        customerId,
+                        List.of(
+                                new OrderItemRequest(productId, 2)
+                        )
+                ),
+                "test-key-008"
+        );
+
+        assertEquals(
+                new BigDecimal("300.00"),
+                response.totalAmount()
+        );
+
+        assertEquals(8, product.getStock());
+
+        ArgumentCaptor<Order> captor =
+                ArgumentCaptor.forClass(Order.class);
+
+        verify(orders).save(captor.capture());
+
+        assertEquals(
+                "test-key-008",
+                captor.getValue().getIdempotencyKey()
+        );
     }
 
     @Test

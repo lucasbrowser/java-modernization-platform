@@ -10,28 +10,28 @@ import java.util.*;
 @RestController
 @RequestMapping("/orders")
 public class OrderController {
+
     private final OrderService service;
+
     public OrderController(OrderService service) {
         this.service = service;
     }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse create(
-    @Valid
-    @RequestBody
-    OrderRequest r) {
-        return service.create(r);
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody OrderRequest request) {
+        return service.create(request, idempotencyKey);
     }
+
     @GetMapping("/{id}")
-    public OrderResponse findById(
-    @PathVariable
-    UUID id) {
+    public OrderResponse findById(@PathVariable UUID id) {
         return service.findById(id);
     }
+
     @GetMapping("/customer/{customerId}")
-    public List<OrderResponse> findByCustomer(
-    @PathVariable
-    UUID customerId) {
+    public List<OrderResponse> findByCustomer(@PathVariable UUID customerId) {
         return service.findByCustomer(customerId);
     }
 }

@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -80,12 +82,13 @@ class OrderControllerIntegrationTest {
                 )
         );
 
-        when(service.create(any(OrderRequest.class)))
+        when(service.create(any(OrderRequest.class), anyString()))
                 .thenReturn(response);
 
         mockMvc.perform(
                         post("/orders")
                                 .with(user("lucas@example.com"))
+                                .header("Idempotency-Key", "test-key-001")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(request))
                 )
@@ -102,6 +105,29 @@ class OrderControllerIntegrationTest {
                         .value(2500.00))
                 .andExpect(jsonPath("$.items[0].total")
                         .value(5000.00));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenIdempotencyKeyIsMissing() throws Exception {
+        UUID customerId = UUID.randomUUID();
+        UUID productId = UUID.randomUUID();
+
+        OrderRequest request = new OrderRequest(
+                customerId,
+                List.of(
+                        new OrderItemRequest(productId, 1)
+                )
+        );
+
+        mockMvc.perform(
+                        post("/orders")
+                                .with(user("lucas@example.com"))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(request))
+                )
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(service);
     }
 
     @Test
@@ -185,6 +211,7 @@ class OrderControllerIntegrationTest {
         mockMvc.perform(
                         post("/orders")
                                 .with(user("lucas@example.com"))
+                                .header("Idempotency-Key", "test-key-invalid-001")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(request))
                 )

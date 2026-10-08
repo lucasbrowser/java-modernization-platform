@@ -29,28 +29,64 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponse create(OrderRequest r) {
-        Customer c = customers.findById(r.customerId()).orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + r.customerId()));
+    public OrderResponse create(OrderRequest r, String idempotencyKey) {
+
+        Optional<Order> existingOrder =
+                orders.findByIdempotencyKey(idempotencyKey);
+
+        if (existingOrder.isPresent()) {
+            return map(existingOrder.get());
+        }
+
+        Customer c = customers.findById(r.customerId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Customer not found: " + r.customerId()));
+
         Order o = new Order();
+
         o.setCustomer(c);
         o.setStatus(OrderStatus.CREATED);
+        o.setIdempotencyKey(idempotencyKey);
+
         BigDecimal total = BigDecimal.ZERO;
+
         for (OrderItemRequest ir : r.items()) {
-            Product p = products.findById(ir.productId()).orElseThrow(() -> new ResourceNotFoundException("Product not found: " + ir.productId()));
-            if (!Boolean.TRUE.equals(p.getActive()))
-            throw new IllegalArgumentException("Product is inactive: " + p.getSku());
-            if (p.getStock()<ir.quantity())
-            throw new IllegalArgumentException("Insufficient stock for product: " + p.getSku());
+
+            Product p = products.findById(ir.productId())
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException(
+                                    "Product not found: " + ir.productId()));
+
+            if (!Boolean.TRUE.equals(p.getActive())) {
+                throw new IllegalArgumentException(
+                        "Product is inactive: " + p.getSku());
+            }
+
+            if (p.getStock() < ir.quantity()) {
+                throw new IllegalArgumentException(
+                        "Insufficient stock for product: " + p.getSku());
+            }
+
             p.setStock(p.getStock() - ir.quantity());
+
             OrderItem item = new OrderItem();
+
             item.setOrder(o);
             item.setProduct(p);
             item.setQuantity(ir.quantity());
             item.setUnitPrice(p.getPrice());
+
             o.getItems().add(item);
-            total = total.add(p.getPrice().multiply(BigDecimal.valueOf(ir.quantity())));
+
+            total = total.add(
+                    p.getPrice()
+                            .multiply(BigDecimal.valueOf(ir.quantity()))
+            );
         }
+
         o.setTotalAmount(total);
+
         return map(orders.save(o));
     }
 
