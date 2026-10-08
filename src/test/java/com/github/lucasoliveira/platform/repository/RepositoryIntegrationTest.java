@@ -15,6 +15,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -150,5 +154,119 @@ class RepositoryIntegrationTest {
                     assertThat(found.getTotalAmount())
                             .isEqualByComparingTo("499.90");
                 });
+    }
+
+    @Test
+    void shouldPaginateAndSortCustomersByName() {
+        Customer lucas = new Customer();
+        lucas.setName("Lucas");
+        lucas.setEmail("lucas.integration@example.com");
+        lucas.setDocument("11111111111");
+
+        Customer ana = new Customer();
+        ana.setName("Ana");
+        ana.setEmail("ana.integration@example.com");
+        ana.setDocument("22222222222");
+
+        Customer bruno = new Customer();
+        bruno.setName("Bruno");
+        bruno.setEmail("bruno.integration@example.com");
+        bruno.setDocument("33333333333");
+
+        Customer carlos = new Customer();
+        carlos.setName("Carlos");
+        carlos.setEmail("carlos.integration@example.com");
+        carlos.setDocument("44444444444");
+
+        Customer maria = new Customer();
+        maria.setName("Maria");
+        maria.setEmail("maria.integration@example.com");
+        maria.setDocument("55555555555");
+
+        customerRepository.saveAll(List.of(
+                lucas,
+                ana,
+                bruno,
+                carlos,
+                maria
+        ));
+
+        Pageable pageable = PageRequest.of(
+                0,
+                2,
+                Sort.by(Sort.Direction.ASC, "name")
+        );
+
+        Page<Customer> result = customerRepository.findAll(pageable);
+
+        assertThat(result.getContent())
+                .extracting(Customer::getName)
+                .containsExactly("Ana", "Bruno");
+
+        assertThat(result.getTotalElements())
+                .isEqualTo(5);
+
+        assertThat(result.getTotalPages())
+                .isEqualTo(3);
+
+        assertThat(result.getNumber())
+                .isEqualTo(0);
+
+        assertThat(result.getSize())
+                .isEqualTo(2);
+    }
+
+    @Test
+    void shouldReturnSecondPageOfCustomers() {
+        Customer lucas = new Customer();
+        lucas.setName("Lucas");
+        lucas.setEmail("lucas.page2@example.com");
+        lucas.setDocument("66666666666");
+
+        Customer ana = new Customer();
+        ana.setName("Ana");
+        ana.setEmail("ana.page2@example.com");
+        ana.setDocument("77777777777");
+
+        Customer bruno = new Customer();
+        bruno.setName("Bruno");
+        bruno.setEmail("bruno.page2@example.com");
+        bruno.setDocument("88888888888");
+
+        Customer carlos = new Customer();
+        carlos.setName("Carlos");
+        carlos.setEmail("carlos.page2@example.com");
+        carlos.setDocument("99999999999");
+
+        customerRepository.saveAll(List.of(
+                lucas,
+                ana,
+                bruno,
+                carlos
+        ));
+
+        Pageable pageable = PageRequest.of(
+                1,
+                2,
+                Sort.by(Sort.Direction.ASC, "name")
+        );
+
+        Page<Customer> result = customerRepository.findAll(pageable);
+
+        assertThat(result.getContent())
+                .extracting(Customer::getName)
+                .containsExactly("Carlos", "Lucas");
+
+        assertThat(result.getNumber())
+                .isEqualTo(1);
+
+        assertThat(result.getSize())
+                .isEqualTo(2);
+
+        assertThat(result.getTotalElements())
+                .isEqualTo(4);
+
+        assertThat(result.getTotalPages())
+                .isEqualTo(2);
     }
 }
