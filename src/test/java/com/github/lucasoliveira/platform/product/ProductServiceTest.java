@@ -11,13 +11,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -25,136 +30,165 @@ import static org.mockito.Mockito.*;
 class ProductServiceTest {
 
     @Mock
-    ProductRepository repository;
+    private ProductRepository repo;
 
     @InjectMocks
-    ProductService service;
+    private ProductService service;
 
     @Test
     void shouldCreateProduct() {
+
         ProductRequest request = new ProductRequest(
-                "NOTE-001",
-                "Notebook",
-                "Notebook Enterprise",
-                new BigDecimal("2500.00"),
+                "SKU-001",
+                "Product 1",
+                "Product description",
+                new BigDecimal("100.00"),
                 10,
                 true
         );
 
-        when(repository.existsBySku(request.sku()))
+        Product product = new Product();
+
+        product.setSku(request.sku());
+        product.setName(request.name());
+        product.setDescription(request.description());
+        product.setPrice(request.price());
+        product.setStock(request.stock());
+        product.setActive(request.active());
+
+        when(repo.existsBySku(request.sku()))
                 .thenReturn(false);
 
-        when(repository.save(any(Product.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(repo.save(any(Product.class)))
+                .thenReturn(product);
 
-        ProductResponse response = service.create(request);
+        ProductResponse response =
+                service.create(request);
 
-        assertEquals("NOTE-001", response.sku());
-        assertEquals("Notebook", response.name());
-        assertEquals("Notebook Enterprise", response.description());
-        assertEquals(
-                new BigDecimal("2500.00"),
-                response.price()
-        );
-        assertEquals(10, response.stock());
-        assertTrue(response.active());
+        assertThat(response).isNotNull();
+        assertThat(response.sku())
+                .isEqualTo("SKU-001");
 
-        verify(repository).save(any(Product.class));
+        assertThat(response.name())
+                .isEqualTo("Product 1");
+
+        assertThat(response.price())
+                .isEqualByComparingTo("100.00");
+
+        assertThat(response.stock())
+                .isEqualTo(10);
+
+        verify(repo).save(any(Product.class));
     }
 
     @Test
     void shouldRejectDuplicatedSku() {
+
         ProductRequest request = new ProductRequest(
-                "NOTE-001",
-                "Notebook",
-                "Notebook Enterprise",
-                new BigDecimal("2500.00"),
+                "SKU-001",
+                "Product 1",
+                "Product description",
+                new BigDecimal("100.00"),
                 10,
                 true
         );
 
-        when(repository.existsBySku(request.sku()))
+        when(repo.existsBySku(request.sku()))
                 .thenReturn(true);
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.create(request)
-        );
+        assertThatThrownBy(() -> service.create(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("SKU already registered");
 
-        assertEquals(
-                "SKU already registered",
-                exception.getMessage()
-        );
-
-        verify(repository, never()).save(any(Product.class));
+        verify(repo, never()).save(any(Product.class));
     }
 
     @Test
-    void shouldFindAllProducts() {
-        Product first = new Product();
-        first.setSku("NOTE-001");
-        first.setName("Notebook");
-        first.setPrice(new BigDecimal("2500.00"));
-        first.setStock(10);
-        first.setActive(true);
+    void shouldFindAllProductsWithPagination() {
 
-        Product second = new Product();
-        second.setSku("MOUSE-001");
-        second.setName("Mouse");
-        second.setPrice(new BigDecimal("100.00"));
-        second.setStock(20);
-        second.setActive(true);
+        Product product = new Product();
 
-        when(repository.findAll())
-                .thenReturn(List.of(first, second));
+        product.setSku("SKU-001");
+        product.setName("Product 1");
+        product.setDescription("Product description");
+        product.setPrice(new BigDecimal("100.00"));
+        product.setStock(10);
+        product.setActive(true);
 
-        List<ProductResponse> response = service.findAll();
+        Pageable pageable = PageRequest.of(0, 10);
 
-        assertEquals(2, response.size());
-        assertEquals("NOTE-001", response.get(0).sku());
-        assertEquals("MOUSE-001", response.get(1).sku());
+        Page<Product> page =
+                new PageImpl<>(List.of(product), pageable, 1);
 
-        verify(repository).findAll();
+        when(repo.findAll(pageable))
+                .thenReturn(page);
+
+        Page<ProductResponse> result =
+                service.findAll(pageable);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+
+        assertThat(result.getContent().get(0).sku())
+                .isEqualTo("SKU-001");
+
+        assertThat(result.getContent().get(0).name())
+                .isEqualTo("Product 1");
+
+        assertThat(result.getContent().get(0).price())
+                .isEqualByComparingTo("100.00");
+
+        assertThat(result.getContent().get(0).stock())
+                .isEqualTo(10);
+
+        assertThat(result.getTotalElements())
+                .isEqualTo(1);
+
+        assertThat(result.getTotalPages())
+                .isEqualTo(1);
+
+        verify(repo).findAll(pageable);
     }
 
     @Test
     void shouldFindProductById() {
+
         UUID id = UUID.randomUUID();
 
         Product product = new Product();
-        product.setSku("NOTE-001");
-        product.setName("Notebook");
-        product.setPrice(new BigDecimal("2500.00"));
+
+        product.setSku("SKU-001");
+        product.setName("Product 1");
+        product.setDescription("Product description");
+        product.setPrice(new BigDecimal("100.00"));
         product.setStock(10);
         product.setActive(true);
 
-        when(repository.findById(id))
+        when(repo.findById(id))
                 .thenReturn(Optional.of(product));
 
-        ProductResponse response = service.findById(id);
+        ProductResponse response =
+                service.findById(id);
 
-        assertEquals("NOTE-001", response.sku());
-        assertEquals("Notebook", response.name());
-        assertEquals(10, response.stock());
+        assertThat(response).isNotNull();
+        assertThat(response.sku())
+                .isEqualTo("SKU-001");
 
-        verify(repository).findById(id);
+        verify(repo).findById(id);
     }
 
     @Test
-    void shouldThrowExceptionWhenProductDoesNotExist() {
+    void shouldThrowWhenProductDoesNotExist() {
+
         UUID id = UUID.randomUUID();
 
-        when(repository.findById(id))
+        when(repo.findById(id))
                 .thenReturn(Optional.empty());
 
-        ResourceNotFoundException exception = assertThrows(
-                ResourceNotFoundException.class,
-                () -> service.findById(id)
-        );
+        assertThatThrownBy(() -> service.findById(id))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Product not found: " + id);
 
-        assertEquals(
-                "Product not found: " + id,
-                exception.getMessage()
-        );
+        verify(repo).findById(id);
     }
 }

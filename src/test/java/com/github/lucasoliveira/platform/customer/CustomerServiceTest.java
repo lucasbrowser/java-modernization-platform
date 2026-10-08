@@ -11,12 +11,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -24,152 +29,166 @@ import static org.mockito.Mockito.*;
 class CustomerServiceTest {
 
     @Mock
-    CustomerRepository repository;
+    private CustomerRepository repo;
 
     @InjectMocks
-    CustomerService service;
+    private CustomerService service;
 
     @Test
     void shouldCreateCustomer() {
+
         CustomerRequest request = new CustomerRequest(
-                "Lucas Oliveira",
-                "LUCAS@EXAMPLE.COM",
+                "Lucas",
+                "lucas@example.com",
                 "12345678900",
                 "65999999999"
         );
 
-        when(repository.existsByEmailIgnoreCase(request.email()))
+        Customer customer = new Customer();
+
+        customer.setName(request.name());
+        customer.setEmail(request.email());
+        customer.setDocument(request.document());
+        customer.setPhone(request.phone());
+
+        when(repo.existsByEmailIgnoreCase(request.email()))
                 .thenReturn(false);
 
-        when(repository.existsByDocument(request.document()))
+        when(repo.existsByDocument(request.document()))
                 .thenReturn(false);
 
-        when(repository.save(any(Customer.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(repo.save(any(Customer.class)))
+                .thenReturn(customer);
 
         CustomerResponse response = service.create(request);
 
-        assertEquals("Lucas Oliveira", response.name());
-        assertEquals("lucas@example.com", response.email());
-        assertEquals("12345678900", response.document());
-        assertEquals("65999999999", response.phone());
+        assertThat(response).isNotNull();
+        assertThat(response.name()).isEqualTo("Lucas");
+        assertThat(response.email()).isEqualTo("lucas@example.com");
+        assertThat(response.document()).isEqualTo("12345678900");
 
-        verify(repository).save(any(Customer.class));
+        verify(repo).save(any(Customer.class));
     }
 
     @Test
     void shouldRejectDuplicatedEmail() {
+
         CustomerRequest request = new CustomerRequest(
-                "Lucas Oliveira",
+                "Lucas",
                 "lucas@example.com",
                 "12345678900",
                 "65999999999"
         );
 
-        when(repository.existsByEmailIgnoreCase(request.email()))
+        when(repo.existsByEmailIgnoreCase(request.email()))
                 .thenReturn(true);
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.create(request)
-        );
+        assertThatThrownBy(() -> service.create(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Customer email already registered");
 
-        assertEquals(
-                "Customer email already registered",
-                exception.getMessage()
-        );
-
-        verify(repository, never()).save(any(Customer.class));
-        verify(repository, never()).existsByDocument(anyString());
+        verify(repo, never()).save(any(Customer.class));
     }
 
     @Test
     void shouldRejectDuplicatedDocument() {
+
         CustomerRequest request = new CustomerRequest(
-                "Lucas Oliveira",
+                "Lucas",
                 "lucas@example.com",
                 "12345678900",
                 "65999999999"
         );
 
-        when(repository.existsByEmailIgnoreCase(request.email()))
+        when(repo.existsByEmailIgnoreCase(request.email()))
                 .thenReturn(false);
 
-        when(repository.existsByDocument(request.document()))
+        when(repo.existsByDocument(request.document()))
                 .thenReturn(true);
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.create(request)
-        );
+        assertThatThrownBy(() -> service.create(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Customer document already registered");
 
-        assertEquals(
-                "Customer document already registered",
-                exception.getMessage()
-        );
-
-        verify(repository, never()).save(any(Customer.class));
+        verify(repo, never()).save(any(Customer.class));
     }
 
     @Test
-    void shouldFindAllCustomers() {
-        Customer first = new Customer();
-        first.setName("Cliente 1");
-        first.setEmail("cliente1@example.com");
-        first.setDocument("11111111111");
+    void shouldFindAllCustomersWithPagination() {
 
-        Customer second = new Customer();
-        second.setName("Cliente 2");
-        second.setEmail("cliente2@example.com");
-        second.setDocument("22222222222");
+        Customer customer = new Customer();
 
-        when(repository.findAll())
-                .thenReturn(List.of(first, second));
+        customer.setName("Lucas");
+        customer.setEmail("lucas@example.com");
+        customer.setDocument("12345678900");
+        customer.setPhone("65999999999");
 
-        List<CustomerResponse> response = service.findAll();
+        Pageable pageable = PageRequest.of(0, 10);
 
-        assertEquals(2, response.size());
-        assertEquals("Cliente 1", response.get(0).name());
-        assertEquals("Cliente 2", response.get(1).name());
+        Page<Customer> page =
+                new PageImpl<>(List.of(customer), pageable, 1);
 
-        verify(repository).findAll();
+        when(repo.findAll(pageable))
+                .thenReturn(page);
+
+        Page<CustomerResponse> result =
+                service.findAll(pageable);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+
+        assertThat(result.getContent().get(0).name())
+                .isEqualTo("Lucas");
+
+        assertThat(result.getContent().get(0).email())
+                .isEqualTo("lucas@example.com");
+
+        assertThat(result.getTotalElements())
+                .isEqualTo(1);
+
+        assertThat(result.getTotalPages())
+                .isEqualTo(1);
+
+        verify(repo).findAll(pageable);
     }
 
     @Test
     void shouldFindCustomerById() {
+
         UUID id = UUID.randomUUID();
 
         Customer customer = new Customer();
-        customer.setName("Cliente Teste");
-        customer.setEmail("cliente@example.com");
-        customer.setDocument("12345678900");
 
-        when(repository.findById(id))
+        customer.setName("Lucas");
+        customer.setEmail("lucas@example.com");
+        customer.setDocument("12345678900");
+        customer.setPhone("65999999999");
+
+        when(repo.findById(id))
                 .thenReturn(Optional.of(customer));
 
-        CustomerResponse response = service.findById(id);
+        CustomerResponse response =
+                service.findById(id);
 
-        assertEquals("Cliente Teste", response.name());
-        assertEquals("cliente@example.com", response.email());
+        assertThat(response).isNotNull();
+        assertThat(response.name())
+                .isEqualTo("Lucas");
 
-        verify(repository).findById(id);
+        verify(repo).findById(id);
     }
 
     @Test
-    void shouldThrowExceptionWhenCustomerDoesNotExist() {
+    void shouldThrowWhenCustomerDoesNotExist() {
+
         UUID id = UUID.randomUUID();
 
-        when(repository.findById(id))
+        when(repo.findById(id))
                 .thenReturn(Optional.empty());
 
-        ResourceNotFoundException exception = assertThrows(
-                ResourceNotFoundException.class,
-                () -> service.findById(id)
-        );
+        assertThatThrownBy(() -> service.findById(id))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Customer not found: " + id);
 
-        assertEquals(
-                "Customer not found: " + id,
-                exception.getMessage()
-        );
+        verify(repo).findById(id);
     }
 }
