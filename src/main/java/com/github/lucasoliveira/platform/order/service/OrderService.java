@@ -8,6 +8,9 @@ import com.github.lucasoliveira.platform.order.entity.*;
 import com.github.lucasoliveira.platform.order.repository.OrderRepository;
 import com.github.lucasoliveira.platform.product.entity.Product;
 import com.github.lucasoliveira.platform.product.repository.ProductRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
@@ -21,6 +24,9 @@ public class OrderService {
     private final CustomerRepository customers;
 
     private final ProductRepository products;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public OrderService(OrderRepository orders, CustomerRepository customers, ProductRepository products) {
         this.orders = orders;
@@ -87,7 +93,11 @@ public class OrderService {
 
         o.setTotalAmount(total);
 
-        return map(orders.save(o));
+        Order savedOrder = orders.save(o);
+
+        entityManager.flush();
+
+        return map(savedOrder);
     }
 
     @Transactional(readOnly = true)

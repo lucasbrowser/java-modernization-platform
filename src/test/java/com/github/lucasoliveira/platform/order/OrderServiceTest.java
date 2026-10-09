@@ -12,7 +12,11 @@ import com.github.lucasoliveira.platform.order.repository.OrderRepository;
 import com.github.lucasoliveira.platform.order.service.OrderService;
 import com.github.lucasoliveira.platform.product.entity.Product;
 import com.github.lucasoliveira.platform.product.repository.ProductRepository;
+
+import jakarta.persistence.EntityManager;
+
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -23,6 +27,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,8 +46,20 @@ class OrderServiceTest {
     @Mock
     ProductRepository products;
 
+    @Mock
+    private EntityManager entityManager;
+
     @InjectMocks
     OrderService service;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(
+                service,
+                "entityManager",
+                entityManager
+        );
+    }
 
     @Test
     void shouldCreateOrderAndDecreaseStock() {
@@ -469,4 +487,6 @@ class OrderServiceTest {
 
         verify(orders).findByCustomerId(customerId);
     }
+
+    
 }
