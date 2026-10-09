@@ -191,4 +191,53 @@ class PostgresContainerIntegrationTest {
 
         assertEquals(1, count);
     }
+
+    @Test
+    void shouldRunProductVersionMigration() {
+        Integer columnCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                AND table_name = 'products'
+                AND column_name = 'version'
+                """,
+                Integer.class
+        );
+
+        assertEquals(1, columnCount);
+    }
+
+    @Test
+    void shouldInitializeProductVersionWithZero() {
+        jdbcTemplate.update(
+                """
+                INSERT INTO products (
+                    sku,
+                    name,
+                    price,
+                    stock,
+                    active
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                "VERSION-001",
+                "Produto Versionado",
+                new BigDecimal("100.00"),
+                10,
+                true
+        );
+
+        Long version = jdbcTemplate.queryForObject(
+                """
+                SELECT version
+                FROM products
+                WHERE sku = ?
+                """,
+                Long.class,
+                "VERSION-001"
+        );
+
+        assertEquals(0L, version);
+    }
 }

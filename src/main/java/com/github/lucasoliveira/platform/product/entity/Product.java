@@ -30,6 +30,10 @@ public class Product {
     @Column(nullable = false)
     Boolean active = true;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Column(name = "created_at", nullable = false)
     OffsetDateTime createdAt;
 
@@ -95,4 +99,14 @@ public class Product {
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
+    }
+
+    
 }
