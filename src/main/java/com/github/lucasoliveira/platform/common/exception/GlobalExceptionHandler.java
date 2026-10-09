@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
+import jakarta.persistence.OptimisticLockException;
+import org.hibernate.StaleObjectStateException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -38,8 +40,14 @@ public class GlobalExceptionHandler {
         return new ApiError(OffsetDateTime.now(), status, error, message, fields);
     }
 
-    @ExceptionHandler(OptimisticLockingFailureException.class)
-    public ResponseEntity<ApiError> handleOptimisticLockingFailure(OptimisticLockingFailureException ex) {
+    @ExceptionHandler({
+        OptimisticLockingFailureException.class,
+        OptimisticLockException.class,
+        StaleObjectStateException.class
+    })
+    public ResponseEntity<ApiError> handleOptimisticLockingFailure(
+            RuntimeException ex) {
+
         ApiError apiError = error(
             HttpStatus.CONFLICT.value(),
             "Conflict",

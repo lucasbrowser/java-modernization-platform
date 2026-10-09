@@ -103,5 +103,46 @@ class GlobalExceptionHandlerTest {
                 .isNotNull();
     }
 
+    @Test
+    void shouldReturnConflictForJpaOptimisticLockException() {
+
+        var exception = new jakarta.persistence.OptimisticLockException(
+                "Product version conflict"
+        );
+
+        ResponseEntity<ApiError> response =
+                handler.handleOptimisticLockingFailure(exception);
+
+        assertThat(response.getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+
+        assertThat(response.getBody())
+                .isNotNull();
+
+        assertThat(response.getBody().status())
+                .isEqualTo(409);
+    }
+
+    @Test
+    void shouldReturnConflictForHibernateStaleObjectStateException() {
+
+        var exception = new org.hibernate.StaleObjectStateException(
+                "Product",
+                java.util.UUID.randomUUID()
+        );
+
+        ResponseEntity<ApiError> response =
+                handler.handleOptimisticLockingFailure(exception);
+
+        assertThat(response.getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+
+        assertThat(response.getBody())
+                .isNotNull();
+
+        assertThat(response.getBody().status())
+                .isEqualTo(409);
+    }
+
 
 }
