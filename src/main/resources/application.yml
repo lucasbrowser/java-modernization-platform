@@ -28,6 +28,12 @@ springdoc:
     path: /v3/api-docs
 
 management:
+  server:
+    port: 8081
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   endpoints:
     web:
       exposure:

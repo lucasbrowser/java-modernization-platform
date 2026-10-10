@@ -1,6 +1,7 @@
 package com.github.lucasoliveira.platform.common.exception;
 
-
+import com.github.lucasoliveira.platform.common.exception.EmailAlreadyRegisteredException;
+import com.github.lucasoliveira.platform.common.exception.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -56,5 +57,29 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(apiError);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    ResponseEntity<ApiError> invalidCredentials(InvalidCredentialsException ex) {
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(error(
+                        401,
+                        "Unauthorized",
+                        ex.getMessage(),
+                        null
+                ));
+    }
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    ResponseEntity<ApiError> emailAlreadyRegistered(EmailAlreadyRegisteredException ex) {
+
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(error(
+                        409,
+                        "Conflict",
+                        ex.getMessage(),
+                        null
+                ));
     }
 }

@@ -8,6 +8,8 @@ import com.github.lucasoliveira.platform.auth.entity.User;
 import com.github.lucasoliveira.platform.auth.repository.UserRepository;
 import com.github.lucasoliveira.platform.auth.service.AuthService;
 import com.github.lucasoliveira.platform.common.security.JwtService;
+import com.github.lucasoliveira.platform.common.exception.EmailAlreadyRegisteredException;
+import com.github.lucasoliveira.platform.common.exception.InvalidCredentialsException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,11 +55,11 @@ class AuthServiceTest {
     void shouldRegisterUserWithEncodedPasswordAndUserRole() {
         RegisterRequest request = new RegisterRequest(
                 "Lucas Oliveira",
-                "Lucas@Example.com",
+                "lucas@example.com",
                 "password123"
         );
 
-        when(repository.existsByEmailIgnoreCase("Lucas@Example.com"))
+        when(repository.existsByEmailIgnoreCase("lucas@example.com"))
                 .thenReturn(false);
         when(passwordEncoder.encode("password123"))
                 .thenReturn("$2a$10$encodedPassword");
@@ -90,7 +92,7 @@ class AuthServiceTest {
                 .thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(request))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(EmailAlreadyRegisteredException.class)
                 .hasMessage("Email already registered");
 
         verify(repository, never()).save(any(User.class));
@@ -137,7 +139,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(
                 new LoginRequest("lucas@example.com", "wrong-password")
         ))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(InvalidCredentialsException.class)
                 .hasMessage("Invalid credentials");
 
         verify(jwtService, never()).generateToken(anyString(), anyString());
@@ -151,7 +153,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(
                 new LoginRequest("unknown@example.com", "password123")
         ))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(InvalidCredentialsException.class)
                 .hasMessage("Invalid credentials");
 
         verify(passwordEncoder, never()).matches(anyString(), anyString());
