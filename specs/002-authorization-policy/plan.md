@@ -3,7 +3,7 @@
 ## Estado atual inspecionado
 
 - `specs/README.md` define o processo SDD e recomenda uma pasta por iniciativa contendo `spec.md`, `plan.md` e `tasks.md`.
-- A iniciativa existente é `specs/001-observability/`; não foi encontrada especificação de autorização de domínio em `specs/`.
+- Antes da criação desta iniciativa, a única iniciativa documentada em `specs/` era `specs/001-observability/`; naquele momento, não havia especificação de autorização de domínio. Esta iniciativa registra agora a política atual.
 - O cadastro de produtos está restrito por `@PreAuthorize("hasRole('ADMIN')")` no método `POST /products`. Os GETs de produtos não têm restrição por perfil.
 - Clientes e pedidos dependem da autenticação geral da cadeia principal, sem restrição por perfil identificada nos controllers inspecionados.
 - A cadeia principal permite os matchers de autenticação, Swagger e health declarados em `SecurityConfig`; `/actuator/prometheus` usa cadeia HTTP Basic dedicada.

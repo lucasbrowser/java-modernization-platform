@@ -18,7 +18,7 @@ As tarefas abaixo são para a etapa de implementação posterior. Cada item tem 
 - **Escopo provável:** `SecurityConfig.java`, `monitoring/prometheus.yml` e possivelmente `docker-compose.yml`.
 - **Verificação:** chamada anônima a `/actuator/prometheus` recebe rejeição de autenticação; cliente Prometheus configurado recebe resposta no formato scrape esperado; nenhuma credencial é versionada.
 
-- **Implementado; validação parcial:** cadeia Basic isolada para `/actuator/prometheus`; Prometheus e API recebem credenciais por variáveis de ambiente; testes provam rejeição anônima e autenticação Basic no path de scrape. A validação do scrape contra o Actuator e Prometheus reais ficou pendente porque o ambiente de teste não tem Docker disponível.
+- **Implementado; validação parcial:** cadeia Basic isolada para `/actuator/prometheus`; Prometheus e API recebem credenciais por variáveis de ambiente. Os testes usam `@WebMvcTest`, importam `SecurityConfig` e exercitam a cadeia Basic nesse path com um endpoint de teste; não validam o scrape contra o Actuator e Prometheus reais. Essa validação integrada permanece pendente; a justificativa registrada na execução original foi a indisponibilidade de Docker naquele ambiente de teste.
 
 ## T-03 — Definir e validar a política de health, liveness e readiness
 

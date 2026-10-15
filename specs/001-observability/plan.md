@@ -1,11 +1,13 @@
 # Plano técnico: Observabilidade da API
 
-## Estado atual inspecionado
+## Estado observado no diagnóstico inicial (antes da T-02)
+
+> Os itens desta seção e a situação inicial da tabela seguinte registram o estado observado antes da implementação da T-02. Eles não descrevem integralmente o estado posterior.
 
 - `pom.xml` usa Java 21 e Spring Boot 3.3.5. Já contém `spring-boot-starter-actuator` e `micrometer-registry-prometheus`; não há necessidade identificada de adicionar dependências.
 - `src/main/resources/application.yml` já define porta de gerenciamento 8081, expõe `health`, `info`, `metrics` e `prometheus`, esconde detalhes de health e habilita probes. Histograma de `http.server.requests` também está ativo.
-- `src/main/java/com/github/lucasoliveira/platform/common/security/SecurityConfig.java` permite `/actuator/health` e subpaths, mas também permite `/actuator/prometheus`. O restante da API exige autenticação JWT. O filtro JWT está na cadeia principal.
-- `monitoring/prometheus.yml` aponta para `api:8081/actuator/prometheus`, porém não configura credencial/autorização para scrape.
+- No diagnóstico anterior à T-02, `SecurityConfig` permitia `/actuator/health` e subpaths e também deixava `/actuator/prometheus` sem autenticação. A T-02 posterior isolou esse endpoint em uma cadeia HTTP Basic; o restante da API segue a cadeia JWT principal.
+- No diagnóstico anterior à T-02, `monitoring/prometheus.yml` apontava para `api:8081/actuator/prometheus` sem credenciais de scrape. Após a T-02, a configuração usa HTTP Basic com credenciais externas. A integração do scrape com Actuator e Prometheus reais permanece pendente.
 - `docker-compose.yml` mantém a porta 8081 sem publicação no host e conecta API e Prometheus à rede `monitoring`; a API expõe no host somente 8080. Isso limita a exposição externa, mas não substitui a proteção de autorização do endpoint.
 - `README.md` documenta o health check em `http://localhost:8080/api/actuator/health`, mas não descreve liveness, readiness, endpoint Prometheus nem requisitos de acesso.
 - Há testes de integração de controllers com `SecurityConfig` e cobertura de rejeição anônima em recursos protegidos. Não foi encontrado teste de Actuator, probes ou autorização de métricas. `application-test.yml` não define configuração específica de Actuator.
@@ -18,7 +20,7 @@
 | RF-01 / CA-01 health check | Actuator presente; health exposto e detalhes ocultos. README cita a URL de aplicação. | Criar teste de resposta saudável e revisar a documentação da URL efetiva. A porta de gerenciamento 8081 tem context path `/api`? Validar a configuração efetiva durante implementação. |
 | RF-02 / RF-03 / CA-02 liveness e readiness | `management.endpoint.health.probes.enabled: true`. | Não há testes nem documentação dos grupos de probes. Definir se readiness considera o PostgreSQL; habilitar probes não significa necessariamente incluir todas as dependências externas no grupo de readiness. |
 | RF-04 / CA-03 métricas Prometheus | Dependência Micrometer Prometheus, endpoint exposto, scrape configurado e dashboard Grafana existente. | Confirmar scrape funcional com autenticação autorizada depois de definida a política; não duplicar registry, dashboard ou job de scrape sem necessidade. |
-| RF-05 / CA-04 segurança | Health é explicitamente público. Prometheus também está explicitamente público na cadeia atual. | O endpoint Prometheus não satisfaz a exigência de acesso autorizado. Definir autenticação para o Prometheus e preservar health apenas como público aprovado. Testar rejeição anônima e acesso permitido do scraper. |
+| RF-05 / CA-04 segurança | Diagnóstico inicial, antes da T-02: health e Prometheus estavam permitidos sem autenticação. Após a T-02: health permanece público e Prometheus exige HTTP Basic. | A autenticação Basic e sua rejeição/análise em MockMvc estão registradas na T-02. A validação do scrape com Actuator e Prometheus reais permanece pendente. |
 | RNF compatibilidade e dependências | Java 21, Boot 3.3.5, dependências de Actuator e Prometheus já presentes. | Preservar versões e evitar dependências adicionais, salvo necessidade comprovada pela decisão de autenticação. |
 | RNF arquitetura modular | Observabilidade configurada transversalmente no app, sem módulo dedicado ou microserviço. | Manter configuração no Actuator/Security comum; não introduzir módulo/serviço novo. |
 | RNF dados sensíveis | `show-details: never`; porta de gerenciamento não publicada no host pelo Compose. | Manter ocultação de detalhes e revisar exposição de `info`/métricas e limites de rede ao documentar. |
@@ -47,7 +49,7 @@
 
 ## Riscos
 
-- Ao retirar `prometheus` da lista pública, scrape sem credencial falhará até que a configuração do Prometheus e a credencial estejam alinhadas.
+- Risco identificado antes da T-02: retirar `prometheus` da lista pública poderia interromper scrape sem credenciais alinhadas. A configuração Basic foi implementada; a validação integrada do scrape real permanece pendente.
 - A porta de gerenciamento é 8081 e está em rede privada de Compose; a URL de health documentada em 8080 inclui `/api`. É necessário confirmar o path efetivo do management server em porta separada antes de publicar URLs como contrato.
 - Incluir PostgreSQL no readiness pode retirar a instância do tráfego durante indisponibilidade do banco; deixá-lo fora pode declarar pronta uma API incapaz de servir operações dependentes do banco.
 - A configuração atual expõe `info` e `metrics` no Actuator, mas essas rotas não estão publicamente autorizadas pela `SecurityConfig`; alterações amplas de matcher podem expô-las acidentalmente.

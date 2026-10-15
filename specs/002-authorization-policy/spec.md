@@ -40,6 +40,8 @@ Esta seção registra o código inspecionado; não transforma observações em r
 
 “Decisão aprovada” identifica política aprovada. “Comportamento observado” descreve apenas as regras presentes no código inspecionado.
 
+Os caminhos de controllers na matriz são mappings relativos ao `server.servlet.context-path`. No servidor HTTP principal, configurado com prefixo `/api`, o mapping `POST /products` é acessado externamente como `POST /api/products`. A matriz mantém os mappings para facilitar a correspondência com os controllers. Os paths dos matchers Actuator são apresentados como definidos na configuração; o scrape usa o servidor de gerenciamento configurado separadamente.
+
 | Rota/operação | Acesso registrado | Classificação | Evidência/observação |
 |---|---|---|---|
 | `POST /products` | JWT autenticado com perfil `ADMIN` | Decisão aprovada | `@PreAuthorize("hasRole('ADMIN')")` no método de cadastro; testes de integração usam JWT ADMIN. |
@@ -70,8 +72,9 @@ Emails iguais, isoladamente, não provam identidade nem estabelecem vínculo apr
 
 Os arquivos de teste existentes incluem:
 
-- `ProductControllerIntegrationTest`: criação permitida com JWT ADMIN; criação negada com `403` para JWT USER e sem chamada ao serviço; rejeição `401` para criação anônima e Bearer inválido; consultas por JWT ADMIN e USER; validação de payload inválido.
-- `PrometheusSecurityIntegrationTest`: rejeição de credenciais Basic ausentes ou inválidas e resposta aceita para credenciais de teste válidas, usando MockMvc.
+- `ProductControllerIntegrationTest`: criação permitida com JWT ADMIN; criação negada com `403` para JWT USER e sem chamada ao serviço; rejeição `401` para criação anônima e Bearer inválido; consultas por JWT ADMIN e USER; validação de payload inválido. Usa `@WebMvcTest`, importa `SecurityConfig` e exercita JWT no contexto MVC de teste; não inicializa a aplicação completa.
+- `CustomerControllerIntegrationTest` e `OrderControllerIntegrationTest`: os cenários autenticados usam `.with(user(...))`, que simula a autenticação. Esses cenários não demonstram o percurso do filtro JWT para esses controllers.
+- `PrometheusSecurityIntegrationTest`: rejeição de credenciais Basic ausentes ou inválidas e resposta aceita para credenciais de teste válidas, usando MockMvc. O teste importa `SecurityConfig`, mas usa `@WebMvcTest` com `MetricsTestEndpoint`, um endpoint de teste; não comprova o scrape integrado ao Actuator e ao Prometheus reais. A validação integrada real permanece pendente, conforme registrada em T-02 de `specs/001-observability/tasks.md`.
 
 **Histórico informado na conclusão da SDD-SEC-04:** 87 testes, zero falhas, zero erros e zero testes ignorados. Esse resultado é histórico, foi relatado para aquela execução e não representa execução ou validação realizada nesta iniciativa.
 
