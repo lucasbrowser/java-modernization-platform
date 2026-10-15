@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,9 +27,11 @@ services:
       DB_USERNAME: postgres
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET:?Configure JWT_SECRET no arquivo .env}
+      PROMETHEUS_USERNAME: ${PROMETHEUS_USERNAME:-prometheus}
+      PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?Configure PROMETHEUS_PASSWORD no arquivo .env}
       MANAGEMENT_SERVER_PORT: 8081
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +45,7 @@ services:
     container_name: modernization-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--config.expand-env=true"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=15d"
     ports:
@@ -60,6 +63,8 @@ services:
     image: grafana/grafana:12.1.0
     container_name: modernization-grafana
     environment:
+      PROMETHEUS_USERNAME: ${PROMETHEUS_USERNAME:-prometheus}
+      PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?Configure PROMETHEUS_PASSWORD no arquivo .env}
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Configure GRAFANA_ADMIN_PASSWORD no arquivo .env}
       GF_USERS_ALLOW_SIGN_UP: "false"

@@ -6,6 +6,11 @@ spring:
   flyway:
     enabled: true
 
+security:
+  metrics:
+    username: prometheus
+    password: test-metrics-password
+
 logging:
   level:
     org.testcontainers: INFO

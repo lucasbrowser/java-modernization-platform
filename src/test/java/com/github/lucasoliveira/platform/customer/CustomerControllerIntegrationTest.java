@@ -23,6 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -38,6 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(CustomerController.class)
 @Import({GlobalExceptionHandler.class, SecurityConfig.class})
+@TestPropertySource(properties = "security.metrics.password=test-metrics-password")
 class CustomerControllerIntegrationTest {
 
     @Autowired

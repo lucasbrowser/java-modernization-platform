@@ -18,6 +18,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.TestPropertySource;
 
 
 import static org.mockito.Mockito.doThrow;
@@ -31,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         GlobalExceptionHandler.class,
         SecurityConfig.class
 })
+@TestPropertySource(properties = "security.metrics.password=test-metrics-password")
 class AuthControllerIntegrationTest {
 
     @Autowired

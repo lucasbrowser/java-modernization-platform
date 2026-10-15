@@ -59,6 +59,9 @@ security:
   jwt:
     secret: ${JWT_SECRET:change-me-in-production-change-me-in-production-32chars}
     expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+  metrics:
+    username: ${PROMETHEUS_USERNAME:prometheus}
+    password: ${PROMETHEUS_PASSWORD}
 
 logging:
   level:
