@@ -7,6 +7,10 @@ spring:
     enabled: true
 
 security:
+  jwt:
+    secret: ${JWT_SECRET_TEST:tests-only-secret-key-32-bytes-minimum}
+    expiration-ms: 3600000
+    
   metrics:
     username: prometheus
     password: test-metrics-password
