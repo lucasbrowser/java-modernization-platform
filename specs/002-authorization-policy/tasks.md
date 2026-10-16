@@ -24,12 +24,13 @@ Esta iniciativa segue o fluxo SDD de `specs/README.md`. As tarefas de implementa
 ### T-02.2 — Resolver usuário autenticado mantendo login compatível
 
 - **Dependências:** T-02.1 concluída e aprovada.
-- **Componentes/arquivos prováveis:** `UserRepository`, serviço de aplicação que precisa da identidade e testes `auth`/segurança.
+- **Componentes/arquivos:** `auth.service.AuthenticatedUserResolver`; `auth.service.AuthenticatedUserIdentity`; exceções `AuthenticatedUserNotFoundException` e `UnauthenticatedIdentityException`; `AuthenticatedUserResolverTest`; `AuthenticatedUserProbeController` e testes em `PostgresContainerIntegrationTest`.
 - **Escopo:** resolver a entidade User pelo principal e-mail atual e expor o UUID/Customer associado ao fluxo de autorização sem buscar Customer por igualdade de e-mail. Login e registro permanecem válidos para vínculo nulo; subject e role do JWT não mudam.
-- **Critérios de aceitação:** usuário sem vínculo autentica; resolução identifica o User persistido; nenhum vínculo é criado por registro ou login; regra de propriedade fica centralizável sem duplicação nos controllers.
-- **Testes esperados:** integração de registro/login com vínculo nulo e token compatível; resolução de usuário existente; usuários e Customers com e-mail igual continuam desvinculados.
+- **Critérios de aceitação:** usuário sem vínculo autentica; resolução identifica o User persistido; identidade sem User persistido é diferenciada de User sem Customer; nenhum vínculo é criado por registro ou login; resolver é reutilizável sem alterar controllers/contratos de produção.
+- **Testes executados:** resolução unitária de User associado/não associado; exceções distintas para contexto não autenticado e identidade sem User; integração com JWT assinado e filtro real para User associado; registro/login real com Customer de e-mail coincidente e vínculo nulo; segurança sem token continua `401`; autoridade JWT `ROLE_USER` preservada.
+- **Status:** concluída nesta execução. Testes direcionados: 34 passaram. `mvn clean test`: 108 testes, 0 falhas, 0 erros, 0 ignorados.
 
-**Status de T-02:** parcialmente concluída. T-02.1 está implementada e testada; T-02.2 permanece proposta e não iniciada, aguardando aprovação explícita.
+**Status de T-02:** concluída. T-02.1 e T-02.2 estão implementadas e testadas; a associação ainda pode permanecer nula e não há operação de administração criada.
 
 ## T-03 — Restringir criação de clientes a ADMIN
 
@@ -70,6 +71,6 @@ Não está incluída nas tarefas acima. Criar, corrigir ou remover vínculos por
 - HTTP para `customerId` divergente em `POST /orders`: `403 Forbidden`.
 - HTTP para Customer divergente em `GET /orders/customer/{customerId}`: `404 Not Found`.
 - HTTP para pedido de terceiro em `GET /orders/{id}`: `404 Not Found`, decisão previamente aprovada.
-- Primeira tarefa de implementação: **T-02.1**, concluída conforme o escopo acima. A próxima tarefa proposta é **T-02.2**, que aguarda aprovação explícita e não foi iniciada.
+- T-02.1 e T-02.2 foram concluídas conforme os escopos acima. A próxima tarefa proposta é T-03; ela não foi iniciada e requer aprovação explícita.
 
-Nesta execução, somente T-02.1 foi implementada. Nenhuma tarefa futura foi iniciada.
+Nesta execução, somente T-02.2 foi implementada. T-03, T-04 e T-05 não foram iniciadas.

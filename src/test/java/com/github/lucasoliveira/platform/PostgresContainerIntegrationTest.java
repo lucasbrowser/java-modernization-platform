@@ -2,14 +2,25 @@ package com.github.lucasoliveira.platform;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import com.github.lucasoliveira.platform.auth.dto.LoginRequest;
+import com.github.lucasoliveira.platform.auth.dto.RegisterRequest;
+import com.github.lucasoliveira.platform.auth.entity.Role;
+import com.github.lucasoliveira.platform.auth.entity.User;
+import com.github.lucasoliveira.platform.auth.repository.UserRepository;
+import com.github.lucasoliveira.platform.auth.service.AuthService;
+import com.github.lucasoliveira.platform.common.security.JwtService;
+import com.github.lucasoliveira.platform.customer.entity.Customer;
+import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -18,10 +29,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.nullValue;
 
 @Testcontainers
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 class PostgresContainerIntegrationTest {
 
@@ -35,6 +52,21 @@ class PostgresContainerIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private JwtService jwtService;
 
     @Test
     void shouldConnectToPostgresContainer() {
@@ -370,6 +402,68 @@ class PostgresContainerIntegrationTest {
                         auditId
                 )
         );
+    }
+
+    @Test
+    void shouldResolvePersistedUserAndCustomerFromJwt() throws Exception {
+        Customer customer = new Customer();
+        customer.setName("Cliente do JWT");
+        customer.setEmail("jwt.customer@example.com");
+        customer.setDocument("JWT-CUSTOMER-001");
+        Customer savedCustomer = customerRepository.saveAndFlush(customer);
+
+        User user = new User();
+        user.setName("Usuário JWT associado");
+        user.setEmail("jwt.linked.user@example.com");
+        user.setPassword("encoded-password");
+        user.setRole(Role.USER);
+        user.setCustomerId(savedCustomer.getId());
+        User savedUser = userRepository.saveAndFlush(user);
+
+        String token = jwtService.generateToken(savedUser.getEmail(), "USER");
+
+        mockMvc.perform(get("/test/authenticated-user")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(savedUser.getId().toString()))
+                .andExpect(jsonPath("$.customerId").value(savedCustomer.getId().toString()))
+                .andExpect(jsonPath("$.hasCustomerAssociation").value(true))
+                .andExpect(jsonPath("$.authorities[0]").value("ROLE_USER"));
+    }
+
+    @Test
+    void shouldKeepRegisteredUserUnlinkedAndResolveItAfterLogin() throws Exception {
+        String email = "jwt.unlinked.user@example.com";
+        Customer customer = new Customer();
+        customer.setName("Mesmo e-mail do usuário");
+        customer.setEmail(email);
+        customer.setDocument("JWT-UNLINKED-001");
+        customerRepository.saveAndFlush(customer);
+
+        authService.register(new RegisterRequest(
+                "Usuário sem vínculo",
+                email,
+                "password123"
+        ));
+        String token = authService.login(new LoginRequest(email, "password123"))
+                .accessToken();
+        User persistedUser = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow();
+
+        assertNull(persistedUser.getCustomerId());
+        mockMvc.perform(get("/test/authenticated-user")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(persistedUser.getId().toString()))
+                .andExpect(jsonPath("$.customerId").value(nullValue()))
+                .andExpect(jsonPath("$.hasCustomerAssociation").value(false))
+                .andExpect(jsonPath("$.authorities[0]").value("ROLE_USER"));
+    }
+
+    @Test
+    void shouldRequireValidJwtBeforeResolvingCurrentUser() throws Exception {
+        mockMvc.perform(get("/test/authenticated-user"))
+                .andExpect(status().isUnauthorized());
     }
 
     private JdbcTemplate jdbcTemplateForSchema(String schema) {

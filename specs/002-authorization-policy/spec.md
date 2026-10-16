@@ -18,7 +18,7 @@ Os caminhos acima são mappings dos controllers e, na API principal, recebem o p
 
 Os itens desta seção descrevem o código inspecionado e não significam que a política futura já esteja implementada.
 
-- A cadeia principal de `SecurityConfig` exige autenticação para as rotas de clientes e pedidos. O filtro JWT converte a claim `role` em autoridade `ROLE_<perfil>` e usa o e-mail do token como principal.
+- A cadeia principal de `SecurityConfig` exige autenticação para as rotas de clientes e pedidos. O filtro JWT converte a claim `role` em autoridade `ROLE_<perfil>` e usa o e-mail do token como principal. T-02.2 adicionou um resolver interno que localiza o `User` persistido por esse principal e expõe seu UUID e `customerId` nullable; o filtro e o contrato do JWT permanecem inalterados.
 - `CustomerController` tem POST, GET paginado e GET por ID. Não há restrição por perfil no controller. `CustomerService` cria e consulta clientes.
 - `OrderController` tem POST, GET por ID e GET por cliente. Não há restrição por perfil ou propriedade no controller ou serviço.
 - `OrderRequest` recebe `customerId`. `OrderService.create` usa esse valor para localizar o cliente.

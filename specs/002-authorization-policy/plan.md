@@ -64,7 +64,7 @@ Para idempotência, identificar o pedido existente, verificar a propriedade e s�
 As tarefas abaixo exigem aprovação explícita individual antes de implementação. **T-02.1 — Persistir a associação opcional e a trilha de auditoria** foi aprovada, implementada e testada nesta execução. As próximas tarefas permanecem propostas; T-02.1 não expõe operação de vínculo.
 
 1. **T-02.1 — Persistência da associação e auditoria:** concluída. Migration V4 adiciona coluna nullable, FK, índice não único e tabela append-only; `User` tem UUID escalar e existe entidade/repositório de auditoria. Testes cobrem migration com dados legados, FK, nulabilidade, cardinalidade, e-mails coincidentes, persistência dos eventos e bloqueio de UPDATE/DELETE. Não foi criado serviço ou endpoint de administração.
-2. **T-02.2 — Resolução de identidade e compatibilidade de autenticação:** resolver usuário persistido por e-mail do principal onde necessário; assegurar que registro e login continuam aceitando vínculo nulo e que JWT mantém subject/role. Testar integração de auth e resolução, sem atribuir Customer.
+2. **T-02.2 — Resolução de identidade e compatibilidade de autenticação:** concluída. `AuthenticatedUserResolver` usa o principal JWT atual para buscar `User` por e-mail e retorna UUID persistido e Customer nullable; distingue contexto não autenticado de JWT sem usuário persistido e identifica vínculo nulo no resultado, sem bloquear login/registro. Testes unitários e integração real do filtro cobrem identidade, vínculo, falta de usuário, email coincidente e roles.
 3. **T-03 — Autorização de criação de clientes:** restringir POST existente a ADMIN e preservar GET para USER/ADMIN. Testes de API para anônimo, USER e ADMIN.
 4. **T-04 — Autorização de pedidos:** centralizar propriedade; aplicar decisões HTTP desta especificação a leitura por ID, leitura por Customer, usuário sem vínculo e criação; autorização antes de replay; manter domínio e estoque. Testes de serviço e API, inclusive JWT real, USER/ADMIN e replays.
 5. **T-05 — Revisão de cobertura integrada:** completar lacunas de migração, cardinalidade, e-mail coincidente, matriz de autorização e contratos HTTP; comparar resultados com todos os critérios de aceitação. Não é motivo para adiar testes pertencentes a T-02.1–T-04.
@@ -81,7 +81,7 @@ Uma operação para criar, alterar ou remover vínculos requer especificação e
 - **Autorização/API:** anônimo `401`; sem vínculo `403` ao consultar/criar; pedido próprio permitido; pedido de terceiro por ID `404`; Customer divergente na rota de lista `404`; Customer divergente no POST `403`; ADMIN amplo; replay sem divulgação e sem efeitos duplicados. Cobrir JWT/filtro real além de `.with(user(...))`.
 - **Regressão de domínio:** manter validação de produto, estoque, integridade e comportamento dos replays autorizados.
 
-Os casos de persistência, migration legada, associação nula, email coincidente, auditoria e imutabilidade foram executados na T-02.1. A suíte completa passou: 101 testes, zero falhas e zero erros. Os testes de T-02.2 em diante continuam planejados e não foram executados nesta tarefa.
+Os casos de persistência, migration legada, associação nula, email coincidente, auditoria e imutabilidade foram executados na T-02.1. Na T-02.2, foram executados testes unitários de resolução, registro/login e teste de integração com JWT real. A suíte completa passou: 108 testes, zero falhas, zero erros e zero ignorados. Os testes das tarefas T-03 em diante continuam planejados e não foram executados nesta tarefa.
 
 ## 9. Riscos residuais e limites
 
@@ -93,4 +93,4 @@ Os casos de persistência, migration legada, associação nula, email coincident
 
 ## 10. Estado documental
 
-Os status HTTP foram definidos na especificação. T-02.1 está concluída; T-02.2 e as demais tarefas continuam propostas e aguardam aprovação explícita. A política de autorização de pedidos ainda não foi implementada nesta tarefa.
+Os status HTTP foram definidos na especificação. T-02.1 e T-02.2 estão concluídas. T-03, T-04 e T-05 continuam propostas, sem aprovação ou implementação. A política de autorização de pedidos ainda não foi implementada nesta tarefa.
