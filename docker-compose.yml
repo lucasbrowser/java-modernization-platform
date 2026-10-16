@@ -45,13 +45,13 @@ services:
     container_name: modernization-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--config.expand-env=true"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=15d"
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus.generated.yml:/etc/prometheus/prometheus.yml:ro
+      - ./.secrets/prometheus_password:/etc/prometheus/prometheus_password:ro
       - prometheus_data:/prometheus
     networks:
       - monitoring

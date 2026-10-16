@@ -1,4 +1,3 @@
-
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -8,7 +7,7 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     basic_auth:
       username: ${PROMETHEUS_USERNAME}
-      password: ${PROMETHEUS_PASSWORD}
+      password_file: /etc/prometheus/prometheus_password
     static_configs:
       - targets:
           - api:8081

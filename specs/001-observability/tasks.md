@@ -18,7 +18,9 @@ As tarefas abaixo são para a etapa de implementação posterior. Cada item tem 
 - **Escopo provável:** `SecurityConfig.java`, `monitoring/prometheus.yml` e possivelmente `docker-compose.yml`.
 - **Verificação:** chamada anônima a `/actuator/prometheus` recebe rejeição de autenticação; cliente Prometheus configurado recebe resposta no formato scrape esperado; nenhuma credencial é versionada.
 
-- **Implementado; validação parcial:** cadeia Basic isolada para `/actuator/prometheus`; Prometheus e API recebem credenciais por variáveis de ambiente. Os testes usam `@WebMvcTest`, importam `SecurityConfig` e exercitam a cadeia Basic nesse path com um endpoint de teste; não validam o scrape contra o Actuator e Prometheus reais. Essa validação integrada permanece pendente; a justificativa registrada na execução original foi a indisponibilidade de Docker naquele ambiente de teste.
+- **Implementado; validação parcial:** cadeia Basic isolada para `/actuator/prometheus`; Prometheus e API recebem credenciais por variáveis de ambiente. Os testes usam `@WebMvcTest`, importam `SecurityConfig` e exercitam a cadeia Basic nesse path com um endpoint de teste; não validam o scrape contra o Actuator e Prometheus reais. Essa validação integrada permanecia pendente naquele momento; a justificativa registrada na execução original foi a indisponibilidade de Docker naquele ambiente de teste.
+
+- **Validação operacional concluída posteriormente:** a configuração Basic foi validada no Docker Compose. O comando `promtool check config /etc/prometheus/prometheus.yml` confirmou a sintaxe da configuração do Prometheus. O alvo `api:8081/actuator/prometheus` apresentou estado `UP`; a consulta `up{job="java-modernization-platform"}` retornou `1`, e `scrape_samples_scraped` retornou `178`. A requisição sem credenciais retornou HTTP `401`. A configuração gerada e o arquivo de senha são locais e ignorados pelo Git. Nenhum valor de credencial foi registrado.
 
 ## T-03 — Definir e validar a política de health, liveness e readiness
 

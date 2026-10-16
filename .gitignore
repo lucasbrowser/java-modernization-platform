@@ -5,3 +5,5 @@ target/
 .env
 .DS_Store
 *.log
+/.secrets/
+/monitoring/prometheus.generated.yml
