@@ -295,11 +295,26 @@ Swagger UI:
 http://localhost:8080/api/swagger-ui.html
 ```
 
-Health Check:
+### Observabilidade
 
-```text
-http://localhost:8080/api/actuator/health
-```
+A API principal e o servidor de gerenciamento usam portas e caminhos diferentes. A API atende em `http://localhost:8080/api` por padrão (`SERVER_PORT` pode alterar a porta). O Actuator usa a porta de gerenciamento `8081` e o base path padrão `/actuator`; esse servidor separado não herda o contexto `/api` da API.
+
+Ao executar com `mvn spring-boot:run`, componha os caminhos da tabela abaixo com `http://localhost:8081` para obter as URLs completas dos endpoints de gerenciamento. No Docker Compose, a API publica apenas a porta `8080` no host. A porta de gerenciamento `8081` não é publicada e fica acessível ao Prometheus pela rede interna, no endereço `api:8081` (`MANAGEMENT_SERVER_PORT` é definido pelo Compose).
+
+| Endpoint | Finalidade | Autenticação | Resultado esperado |
+| --- | --- | --- | --- |
+| `/actuator/health` | Estado geral da aplicação | Pública | HTTP 200 e `UP` quando saudável |
+| `/actuator/health/liveness` | Indica se a aplicação está em execução | Pública | HTTP 200 e `UP` quando saudável |
+| `/actuator/health/readiness` | Indica se a aplicação está pronta para receber requisições | Pública | HTTP 200 e `UP` quando pronta |
+| `/actuator/prometheus` | Métricas para scrape do Prometheus | HTTP Basic | HTTP 401 sem credenciais válidas; HTTP 200 com métricas para cliente autorizado |
+| `/actuator/metrics` | Consulta de métricas do Actuator | JWT (Bearer) | Requer autenticação; acesso anônimo retorna HTTP 401 |
+| `/actuator/info` | Informações da aplicação | JWT (Bearer) | Requer autenticação; acesso anônimo retorna HTTP 401 |
+
+Os detalhes internos dos endpoints de health não são exibidos (`show-details: never`). O estado HTTP 200 e `UP` corresponde à aplicação saudável; a autorização do endpoint é uma verificação separada do estado de saúde.
+
+O readiness mantém os grupos padrão do Actuator; o PostgreSQL não foi incluído explicitamente nesse grupo.
+
+O scraper Prometheus recebe o usuário e a senha por configuração externa (`PROMETHEUS_USERNAME` e `PROMETHEUS_PASSWORD`). Configure essas variáveis no ambiente local apropriado; não registre valores de credenciais no README, em comandos compartilhados ou no repositório. No Compose, o endpoint é consumido internamente em `api:8081/actuator/prometheus`.
 
 ---
 

@@ -67,3 +67,29 @@
 - A porta de gerenciamento 8081 segue interna no Compose, com o Prometheus como cliente autorizado.
 - Readiness permanece com os grupos padrão do Actuator nesta tarefa, sem adicionar PostgreSQL. A decisão final é acompanhada em T-03.
 
+
+## Resultado da implementação — T-03
+
+### Decisões confirmadas
+
+- Health, liveness e readiness permanecem sob o Actuator existente.
+- A configuração `management.endpoint.health.probes.enabled: true` é mantida.
+- A política `management.endpoint.health.show-details: never` é mantida.
+- Readiness continua usando os grupos padrão do Actuator, sem inclusão explícita do PostgreSQL.
+- A porta de gerenciamento continua separada da porta principal da API.
+- Nenhuma dependência adicional foi necessária.
+- Não foram necessárias alterações na configuração de produção ou na cadeia de segurança para concluir a T-03.
+
+### Testes e evidências
+
+- Adicionado `ActuatorHealthIntegrationTest`, com inicialização do contexto Spring Boot e PostgreSQL via Testcontainers.
+- Validado o acesso sem autenticação aos endpoints `/actuator/health`, `/actuator/health/liveness` e `/actuator/health/readiness` no servidor de gerenciamento.
+- Os testes verificam HTTP 200, status `UP` e ausência das informações sensíveis contempladas pelas asserções.
+- O teste de integração passou isoladamente.
+- A execução completa de `mvn clean test` terminou sem erros reportados.
+
+### Resultado
+
+T-03 concluída dentro do escopo aprovado. A implementação preserva a arquitetura, as versões das dependências e as decisões anteriores. A documentação das URLs operacionais no README permanece para a T-05, e a validação consolidada dos critérios de aceitação permanece para a T-06.
+
+
