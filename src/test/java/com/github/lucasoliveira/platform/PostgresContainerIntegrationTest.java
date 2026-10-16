@@ -1,13 +1,17 @@
 package com.github.lucasoliveira.platform;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -239,5 +243,141 @@ class PostgresContainerIntegrationTest {
         );
 
         assertEquals(0L, version);
+    }
+
+    @Test
+    void shouldMigrateLegacyUsersWithoutCreatingCustomerLinks() {
+        String schema = "legacy_" + UUID.randomUUID().toString().replace("-", "");
+
+        try {
+            Flyway.configure()
+                    .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                    .schemas(schema)
+                    .defaultSchema(schema)
+                    .locations("classpath:db/migration")
+                    .target(MigrationVersion.fromVersion("3"))
+                    .load()
+                    .migrate();
+
+            JdbcTemplate legacyJdbc = jdbcTemplateForSchema(schema);
+            legacyJdbc.update(
+                    "INSERT INTO " + schema + ".users (name, email, password, role) VALUES (?, ?, ?, ?)",
+                    "Usuário legado",
+                    "legacy.same@example.com",
+                    "encoded-password",
+                    "USER"
+            );
+            legacyJdbc.update(
+                    "INSERT INTO " + schema + ".customers (name, email, document) VALUES (?, ?, ?)",
+                    "Cliente legado",
+                    "legacy.same@example.com",
+                    "LEGACY-SAME-001"
+            );
+
+            Flyway.configure()
+                    .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                    .schemas(schema)
+                    .defaultSchema(schema)
+                    .locations("classpath:db/migration")
+                    .load()
+                    .migrate();
+
+            assertEquals(
+                    1,
+                    legacyJdbc.queryForObject(
+                            "SELECT COUNT(*) FROM " + schema + ".users WHERE email = ?",
+                            Integer.class,
+                            "legacy.same@example.com"
+                    )
+            );
+            assertEquals(
+                    1,
+                    legacyJdbc.queryForObject(
+                            "SELECT COUNT(*) FROM " + schema + ".customers WHERE email = ?",
+                            Integer.class,
+                            "legacy.same@example.com"
+                    )
+            );
+            assertEquals(
+                    1,
+                    legacyJdbc.queryForObject(
+                            "SELECT COUNT(*) FROM " + schema + ".users "
+                                    + "WHERE email = ? AND customer_id IS NULL",
+                            Integer.class,
+                            "legacy.same@example.com"
+                    )
+            );
+            assertEquals(
+                    0,
+                    legacyJdbc.queryForObject(
+                            "SELECT COUNT(*) FROM " + schema + ".user_customer_link_audit",
+                            Integer.class
+                    )
+            );
+        } finally {
+            jdbcTemplate.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+        }
+    }
+
+    @Test
+    void shouldRejectUpdatesAndDeletesFromAppendOnlyAuditTable() {
+        jdbcTemplate.update(
+                "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
+                "Audit actor",
+                "audit-actor-append-only@example.com",
+                "encoded-password",
+                "ADMIN"
+        );
+        jdbcTemplate.update(
+                "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
+                "Audit target",
+                "audit-target-append-only@example.com",
+                "encoded-password",
+                "USER"
+        );
+        UUID auditId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO user_customer_link_audit (
+                    id, actor_user_id, target_user_id, action, justification
+                ) VALUES (
+                    ?,
+                    (SELECT id FROM users WHERE email = ?),
+                    (SELECT id FROM users WHERE email = ?),
+                    ?,
+                    ?
+                )
+                """,
+                auditId,
+                "audit-actor-append-only@example.com",
+                "audit-target-append-only@example.com",
+                "CREATE",
+                "Append-only verification"
+        );
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                DataAccessException.class,
+                () -> jdbcTemplate.update(
+                        "UPDATE user_customer_link_audit SET justification = ? WHERE id = ?",
+                        "modified",
+                        auditId
+                )
+        );
+        org.junit.jupiter.api.Assertions.assertThrows(
+                DataAccessException.class,
+                () -> jdbcTemplate.update(
+                        "DELETE FROM user_customer_link_audit WHERE id = ?",
+                        auditId
+                )
+        );
+    }
+
+    private JdbcTemplate jdbcTemplateForSchema(String schema) {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                postgres.getJdbcUrl() + "?currentSchema=" + schema,
+                postgres.getUsername(),
+                postgres.getPassword()
+        );
+        return new JdbcTemplate(dataSource);
     }
 }

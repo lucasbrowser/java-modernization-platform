@@ -25,6 +25,9 @@ public class User {
     @Column(nullable = false)
     private Role role;
 
+    @Column(name = "customer_id")
+    private UUID customerId;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -69,5 +72,13 @@ public class User {
 
     public void setRole(Role v) {
         role = v;
+    }
+
+    public UUID getCustomerId() {
+        return customerId;
+    }
+
+    public void setCustomerId(UUID customerId) {
+        this.customerId = customerId;
     }
 }

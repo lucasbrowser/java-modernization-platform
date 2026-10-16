@@ -2,7 +2,10 @@ package com.github.lucasoliveira.platform.repository;
 
 import com.github.lucasoliveira.platform.auth.entity.Role;
 import com.github.lucasoliveira.platform.auth.entity.User;
+import com.github.lucasoliveira.platform.auth.entity.UserCustomerLinkAction;
+import com.github.lucasoliveira.platform.auth.entity.UserCustomerLinkAudit;
 import com.github.lucasoliveira.platform.auth.repository.UserRepository;
+import com.github.lucasoliveira.platform.auth.repository.UserCustomerLinkAuditRepository;
 import com.github.lucasoliveira.platform.customer.entity.Customer;
 import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;
 import com.github.lucasoliveira.platform.order.entity.Order;
@@ -15,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -25,9 +29,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Testcontainers
 @DataJpaTest
@@ -45,6 +52,9 @@ class RepositoryIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private UserCustomerLinkAuditRepository userCustomerLinkAuditRepository;
 
     @Autowired
     private CustomerRepository customerRepository;
@@ -70,6 +80,80 @@ class RepositoryIntegrationTest {
                 .get()
                 .extracting(User::getEmail)
                 .isEqualTo("lucas@example.com");
+    }
+
+    @Test
+    void shouldAllowMultipleUsersToShareOneCustomer() {
+        Customer customer = new Customer();
+        customer.setName("Cliente compartilhado");
+        customer.setEmail("shared.customer@example.com");
+        customer.setDocument("SHARED-CUSTOMER-001");
+        Customer savedCustomer = customerRepository.saveAndFlush(customer);
+
+        User first = newUser("first.shared@example.com");
+        first.setCustomerId(savedCustomer.getId());
+        User second = newUser("second.shared@example.com");
+        second.setCustomerId(savedCustomer.getId());
+
+        userRepository.saveAllAndFlush(List.of(first, second));
+
+        assertThat(userRepository.findAll())
+                .filteredOn(user -> savedCustomer.getId().equals(user.getCustomerId()))
+                .hasSize(2);
+    }
+
+    @Test
+    void shouldRejectReferenceToMissingCustomer() {
+        User user = newUser("missing.customer@example.com");
+        user.setCustomerId(UUID.randomUUID());
+
+        assertThatThrownBy(() -> userRepository.saveAndFlush(user))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldKeepUserUnlinkedWhenEmailMatchesCustomer() {
+        Customer customer = new Customer();
+        customer.setName("Email coincidente");
+        customer.setEmail("same.email@example.com");
+        customer.setDocument("SAME-EMAIL-001");
+        customerRepository.saveAndFlush(customer);
+
+        User user = newUser("same.email@example.com");
+        User savedUser = userRepository.saveAndFlush(user);
+
+        assertThat(savedUser.getCustomerId()).isNull();
+    }
+
+    @Test
+    void shouldPersistUserCustomerLinkAuditFields() {
+        User actor = userRepository.saveAndFlush(newUser("audit.actor@example.com"));
+        User target = userRepository.saveAndFlush(newUser("audit.target@example.com"));
+        UUID previousCustomerId = UUID.randomUUID();
+        UUID newCustomerId = UUID.randomUUID();
+
+        UserCustomerLinkAudit saved = userCustomerLinkAuditRepository.saveAndFlush(
+                new UserCustomerLinkAudit(
+                        actor.getId(),
+                        target.getId(),
+                        previousCustomerId,
+                        newCustomerId,
+                        UserCustomerLinkAction.CHANGE,
+                        "Correção autorizada"
+                )
+        );
+
+        UserCustomerLinkAudit found = userCustomerLinkAuditRepository
+                .findById(saved.getId())
+                .orElseThrow();
+
+        assertThat(found.getActorUserId()).isEqualTo(actor.getId());
+        assertThat(found.getTargetUserId()).isEqualTo(target.getId());
+        assertThat(found.getPreviousCustomerId()).isEqualTo(previousCustomerId);
+        assertThat(found.getNewCustomerId()).isEqualTo(newCustomerId);
+        assertThat(found.getAction()).isEqualTo(UserCustomerLinkAction.CHANGE);
+        assertThat(found.getOccurredAt().getOffset()).isEqualTo(ZoneOffset.UTC);
+        assertThat(found.getJustification()).isEqualTo("Correção autorizada");
     }
 
     @Test
@@ -268,5 +352,14 @@ class RepositoryIntegrationTest {
 
         assertThat(result.getTotalPages())
                 .isEqualTo(2);
+    }
+
+    private User newUser(String email) {
+        User user = new User();
+        user.setName("Usuário de teste");
+        user.setEmail(email);
+        user.setPassword("encoded-password");
+        user.setRole(Role.USER);
+        return user;
     }
 }
