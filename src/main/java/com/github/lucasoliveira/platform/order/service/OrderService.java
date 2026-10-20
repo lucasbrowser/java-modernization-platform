@@ -10,7 +10,7 @@ import com.github.lucasoliveira.platform.product.entity.Product;
 import com.github.lucasoliveira.platform.product.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
@@ -25,23 +25,36 @@ public class OrderService {
 
     private final ProductRepository products;
 
+    private final OrderAuthorizationService authorization;
+
     @PersistenceContext
     private EntityManager entityManager;
 
-    public OrderService(OrderRepository orders, CustomerRepository customers, ProductRepository products) {
+    public OrderService(OrderRepository orders, CustomerRepository customers, ProductRepository products,
+                        OrderAuthorizationService authorization) {
         this.orders = orders;
         this.customers = customers;
         this.products = products;
+        this.authorization = authorization;
     }
 
     @Transactional
     public OrderResponse create(OrderRequest r, String idempotencyKey) {
 
+        OrderAuthorizationService.Scope scope = authorization.currentScope();
+        if (!scope.allows(r.customerId())) {
+            throw new AccessDeniedException("Order customer does not match the authenticated user");
+        }
+
         Optional<Order> existingOrder =
                 orders.findByIdempotencyKey(idempotencyKey);
 
         if (existingOrder.isPresent()) {
-            return map(existingOrder.get());
+            Order order = existingOrder.get();
+            if (!scope.allows(order.getCustomer().getId())) {
+                throw new ResourceNotFoundException("Order not found");
+            }
+            return map(order);
         }
 
         Customer c = customers.findById(r.customerId())
@@ -102,11 +115,21 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderResponse findById(UUID id) {
-        return map(orders.findById(id).orElseThrow(() -> new ResourceNotFoundException("Order not found: " + id)));
+        OrderAuthorizationService.Scope scope = authorization.currentScope();
+        Order order = orders.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + id));
+        if (!scope.allows(order.getCustomer().getId())) {
+            throw new ResourceNotFoundException("Order not found: " + id);
+        }
+        return map(order);
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> findByCustomer(UUID id) {
+        OrderAuthorizationService.Scope scope = authorization.currentScope();
+        if (!scope.allows(id)) {
+            throw new ResourceNotFoundException("Customer not found: " + id);
+        }
         return orders.findByCustomerId(id).stream()
                 .map(this::map)
                 .toList();

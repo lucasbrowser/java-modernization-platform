@@ -50,7 +50,9 @@ Esta iniciativa segue o fluxo SDD de `specs/README.md`. As tarefas de implementa
 - **Escopo:** centralizar política de propriedade e aplicá-la às operações existentes. `USER` sem vínculo recebe `403` ao consultar ou criar; `customerId` divergente em `POST /orders` recebe `403`; pedido de terceiro por `GET /orders/{id}` recebe `404`; cliente divergente em `GET /orders/customer/{customerId}` recebe `404`. ADMIN mantém acesso amplo sujeito às regras do domínio. Autorizar antes de devolver replay de idempotência.
 - **Critérios de aceitação:** cumprir exatamente os status acima; nunca substituir silenciosamente `customerId`; não revelar pedido/cliente de terceiro; preservar replays legítimos, estoque, validações e integridade; nenhuma rota nova.
 - **Testes esperados:** serviços para associado/sem vínculo/USER/ADMIN; API com JWT real para próprios/terceiros; os quatro casos HTTP; replay autorizado e não autorizado; regressão de estoque e validações. `.with(user(...))` sozinho não cobre o filtro JWT.
-- **Status:** proposta; requer aprovação explícita.
+- **Testes direcionados:** `OrderServiceTest`, `OrderControllerIntegrationTest` e `PostgresContainerIntegrationTest`: 34 testes, 0 falhas, 0 erros, 0 ignorados. Cobertura JWT real/PostgreSQL inclui ADMIN multi-Customer, USER próprio/terceiro, usuário sem vínculo, anônimo, criação divergente, criação válida e replay idempotente autorizado e não autorizado.
+- **Suíte completa:** `mvn clean test`: 115 testes, 0 falhas, 0 erros, 0 ignorados; BUILD SUCCESS. A primeira execução completa revelou que o teste concorrente de serviço direto precisava de contexto ADMIN; o teste foi atualizado sem alterar a segurança de produção e a execução final passou.
+- **Status:** concluída nesta execução. Nenhuma migration ou contrato de API foi alterado.
 
 ## T-05 — Completar verificação integrada da política
 
@@ -73,6 +75,6 @@ Não está incluída nas tarefas acima. Criar, corrigir ou remover vínculos por
 - HTTP para `customerId` divergente em `POST /orders`: `403 Forbidden`.
 - HTTP para Customer divergente em `GET /orders/customer/{customerId}`: `404 Not Found`.
 - HTTP para pedido de terceiro em `GET /orders/{id}`: `404 Not Found`, decisão previamente aprovada.
-- T-02.1, T-02.2 e T-03 foram concluídas conforme os escopos acima. T-04 e T-05 continuam propostas e não foram iniciadas.
+- T-02.1, T-02.2, T-03 e T-04 foram concluídas conforme os escopos acima. T-05 continua proposta e não foi iniciada.
 
-Nesta execução, T-03 foi implementada e concluída após T-02.1 e T-02.2. T-04 e T-05 não foram iniciadas; T-04 aguarda aprovação explícita própria.
+Nesta execução, T-04 foi implementada e concluída. T-05 não foi iniciada e aguarda aprovação explícita própria.

@@ -11,6 +11,11 @@ import com.github.lucasoliveira.platform.auth.service.AuthService;
 import com.github.lucasoliveira.platform.common.security.JwtService;
 import com.github.lucasoliveira.platform.customer.entity.Customer;
 import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;
+import com.github.lucasoliveira.platform.product.entity.Product;
+import com.github.lucasoliveira.platform.product.repository.ProductRepository;
+import com.github.lucasoliveira.platform.order.entity.Order;
+import com.github.lucasoliveira.platform.order.repository.OrderRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import org.springframework.http.MediaType;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.nullValue;
@@ -61,6 +68,15 @@ class PostgresContainerIntegrationTest {
 
     @Autowired
     private CustomerRepository customerRepository;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private AuthService authService;
@@ -464,6 +480,137 @@ class PostgresContainerIntegrationTest {
     void shouldRequireValidJwtBeforeResolvingCurrentUser() throws Exception {
         mockMvc.perform(get("/test/authenticated-user"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldEnforceOrderOwnershipAndIdempotencyThroughRealJwtAndPostgres() throws Exception {
+        String suffix = UUID.randomUUID().toString();
+        Customer owner = saveCustomer("owner-" + suffix);
+        Customer other = saveCustomer("other-" + suffix);
+        User linkedUser = saveUser("linked-" + suffix, Role.USER, owner.getId());
+        User unlinkedUser = saveUser("unlinked-" + suffix, Role.USER, null);
+        User admin = saveUser("admin-" + suffix, Role.ADMIN, null);
+
+        Product product = new Product();
+        product.setSku("AUTH-" + suffix);
+        product.setName("Authorization test product");
+        product.setPrice(new BigDecimal("10.00"));
+        product.setStock(5);
+        product.setActive(true);
+        product = productRepository.saveAndFlush(product);
+
+        String userToken = jwtService.generateToken(linkedUser.getEmail(), "USER");
+        String unlinkedToken = jwtService.generateToken(unlinkedUser.getEmail(), "USER");
+        String adminToken = jwtService.generateToken(admin.getEmail(), "ADMIN");
+
+        String adminKey = "admin-" + suffix;
+        String adminBody = orderBody(other.getId(), product.getId());
+        String adminOrderJson = mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .header("Idempotency-Key", adminKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(adminBody))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID otherOrderId = UUID.fromString(objectMapper.readTree(adminOrderJson).get("id").asText());
+
+        mockMvc.perform(get("/orders/{id}", otherOrderId)
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/orders/customer/{customerId}", other.getId())
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/orders/customer/{customerId}", owner.getId())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/orders/customer/{customerId}", other.getId())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        String ownerKey = "owner-" + suffix;
+        String ownerBody = orderBody(owner.getId(), product.getId());
+        String ownerOrderJson = mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("Idempotency-Key", ownerKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ownerBody))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID ownerOrderId = UUID.fromString(objectMapper.readTree(ownerOrderJson).get("id").asText());
+
+        mockMvc.perform(get("/orders/{id}", ownerOrderId)
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/orders/customer/{customerId}", owner.getId())
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("Idempotency-Key", "mismatch-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(other.getId(), product.getId())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("Idempotency-Key", adminKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ownerBody))
+                .andExpect(status().isNotFound());
+
+        String replayJson = mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("Idempotency-Key", ownerKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ownerBody))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        assertEquals(ownerOrderId.toString(), objectMapper.readTree(replayJson).get("id").asText());
+
+        mockMvc.perform(get("/orders/customer/{customerId}", owner.getId())
+                        .header("Authorization", "Bearer " + unlinkedToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + unlinkedToken)
+                        .header("Idempotency-Key", "unlinked-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ownerBody))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/orders/{id}", ownerOrderId))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/orders")
+                        .header("Idempotency-Key", "anonymous-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ownerBody))
+                .andExpect(status().isUnauthorized());
+
+        assertEquals(3, productRepository.findById(product.getId()).orElseThrow().getStock());
+        assertEquals(1, orderRepository.findByCustomerId(owner.getId()).size());
+        assertEquals(1, orderRepository.findByCustomerId(other.getId()).size());
+    }
+
+    private Customer saveCustomer(String suffix) {
+        Customer customer = new Customer();
+        customer.setName("Customer " + suffix);
+        customer.setEmail(suffix + "@example.com");
+        customer.setDocument("DOC-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20));
+        return customerRepository.saveAndFlush(customer);
+    }
+
+    private User saveUser(String suffix, Role role, UUID customerId) {
+        User user = new User();
+        user.setName("User " + suffix);
+        user.setEmail(suffix + "@example.com");
+        user.setPassword("encoded-password");
+        user.setRole(role);
+        user.setCustomerId(customerId);
+        return userRepository.saveAndFlush(user);
+    }
+
+    private String orderBody(UUID customerId, UUID productId) throws Exception {
+        return objectMapper.writeValueAsString(new com.github.lucasoliveira.platform.order.dto.OrderRequest(
+                customerId,
+                java.util.List.of(new com.github.lucasoliveira.platform.order.dto.OrderItemRequest(productId, 1))));
     }
 
     private JdbcTemplate jdbcTemplateForSchema(String schema) {

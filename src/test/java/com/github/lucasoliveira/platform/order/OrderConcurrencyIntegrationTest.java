@@ -18,6 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -187,6 +190,11 @@ public class OrderConcurrencyIntegrationTest {
         }
 
         try {
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(
+                            "concurrency-admin@example.com",
+                            null,
+                            List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
             new TransactionTemplate(transactionManager).execute(status ->
                     orderService.create(request, idempotencyKey)
             );
@@ -199,6 +207,8 @@ public class OrderConcurrencyIntegrationTest {
             }
 
             throw ex;
+        } finally {
+            SecurityContextHolder.clearContext();
         }
     }
 

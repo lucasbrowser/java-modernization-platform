@@ -10,6 +10,7 @@ import com.github.lucasoliveira.platform.order.entity.Order;
 import com.github.lucasoliveira.platform.order.entity.OrderStatus;
 import com.github.lucasoliveira.platform.order.repository.OrderRepository;
 import com.github.lucasoliveira.platform.order.service.OrderService;
+import com.github.lucasoliveira.platform.order.service.OrderAuthorizationService;
 import com.github.lucasoliveira.platform.product.entity.Product;
 import com.github.lucasoliveira.platform.product.repository.ProductRepository;
 
@@ -49,11 +50,16 @@ class OrderServiceTest {
     @Mock
     private EntityManager entityManager;
 
+    @Mock
+    OrderAuthorizationService authorization;
+
     @InjectMocks
     OrderService service;
 
     @BeforeEach
     void setUp() {
+        when(authorization.currentScope())
+                .thenReturn(new OrderAuthorizationService.Scope(true, null));
         ReflectionTestUtils.setField(
                 service,
                 "entityManager",
@@ -338,6 +344,55 @@ class OrderServiceTest {
         verify(customers, never()).findById(any(UUID.class));
         verify(products, never()).findById(any(UUID.class));
         verify(orders, never()).save(any(Order.class));
+    }
+
+    @Test
+    void shouldRejectUserWhenCreatingForAnotherCustomerBeforeCheckingIdempotency() {
+        UUID associatedCustomerId = UUID.randomUUID();
+        UUID requestedCustomerId = UUID.randomUUID();
+        when(authorization.currentScope()).thenReturn(
+                new OrderAuthorizationService.Scope(false, associatedCustomerId));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.create(new OrderRequest(requestedCustomerId, List.of()), "foreign-key"));
+
+        verify(orders, never()).findByIdempotencyKey(anyString());
+        verifyNoInteractions(customers, products);
+    }
+
+    @Test
+    void shouldNotReplayAnotherCustomersOrderForUser() {
+        UUID associatedCustomerId = UUID.randomUUID();
+        Customer otherCustomer = new Customer();
+        ReflectionTestUtils.setField(otherCustomer, "id", UUID.randomUUID());
+        Order foreignOrder = new Order();
+        foreignOrder.setCustomer(otherCustomer);
+        foreignOrder.setStatus(OrderStatus.CREATED);
+        foreignOrder.setTotalAmount(new BigDecimal("500.00"));
+        when(authorization.currentScope()).thenReturn(
+                new OrderAuthorizationService.Scope(false, associatedCustomerId));
+        when(orders.findByIdempotencyKey("foreign-key")).thenReturn(Optional.of(foreignOrder));
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.create(new OrderRequest(associatedCustomerId, List.of()), "foreign-key"));
+
+        verify(orders, never()).save(any(Order.class));
+        verifyNoInteractions(products);
+    }
+
+    @Test
+    void shouldHideAnotherCustomersOrderWhenUserLooksItUpById() {
+        UUID orderId = UUID.randomUUID();
+        UUID associatedCustomerId = UUID.randomUUID();
+        Customer otherCustomer = new Customer();
+        ReflectionTestUtils.setField(otherCustomer, "id", UUID.randomUUID());
+        Order foreignOrder = new Order();
+        foreignOrder.setCustomer(otherCustomer);
+        when(authorization.currentScope()).thenReturn(
+                new OrderAuthorizationService.Scope(false, associatedCustomerId));
+        when(orders.findById(orderId)).thenReturn(Optional.of(foreignOrder));
+
+        assertThrows(ResourceNotFoundException.class, () -> service.findById(orderId));
     }
 
     @Test
