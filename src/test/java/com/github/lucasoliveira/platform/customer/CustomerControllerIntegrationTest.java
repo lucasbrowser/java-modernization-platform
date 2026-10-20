@@ -24,6 +24,8 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -51,7 +53,7 @@ class CustomerControllerIntegrationTest {
     @MockBean
     private CustomerService service;
 
-    @MockBean
+    @Autowired
     private JwtService jwtService;
 
     @Test
@@ -80,7 +82,7 @@ class CustomerControllerIntegrationTest {
 
         mockMvc.perform(
                         post("/customers")
-                                .with(user("lucas@example.com"))
+                                .header("Authorization", "Bearer " + jwtService.generateToken("lucas@example.com", "ADMIN"))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(request))
                 )
@@ -88,6 +90,47 @@ class CustomerControllerIntegrationTest {
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.name").value("Lucas"))
                 .andExpect(jsonPath("$.email").value("lucas@example.com"));
+    }
+
+    @Test
+    void shouldRejectCustomerCreationForUserJwt() throws Exception {
+        mockMvc.perform(post("/customers")
+                        .header("Authorization", "Bearer " + jwtService.generateToken("user@example.com", "USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CustomerRequest(
+                                "Lucas", "lucas@example.com", "12345678900", "65999999999"))))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldRejectAnonymousCustomerCreation() throws Exception {
+        mockMvc.perform(post("/customers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CustomerRequest(
+                                "Lucas", "lucas@example.com", "12345678900", "65999999999"))))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldAllowUserAndAdminJwtsToReadCustomers() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(service.findAll(any(Pageable.class))).thenReturn(Page.empty());
+        when(service.findById(id)).thenReturn(new CustomerResponse(
+                id, "Lucas", "lucas@example.com", "12345678900", "65999999999", OffsetDateTime.now()));
+
+        for (String role : List.of("USER", "ADMIN")) {
+            String token = jwtService.generateToken(role.toLowerCase() + "@example.com", role);
+            mockMvc.perform(get("/customers").header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/customers/{id}", id).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk());
+        }
+        verify(service, times(2)).findAll(any(Pageable.class));
+        verify(service, times(2)).findById(id);
     }
 
     @Test
@@ -210,6 +253,14 @@ class CustomerControllerIntegrationTest {
                         get("/customers")
                 )
                 .andExpect(status().isUnauthorized());
+    }
+
+    @TestConfiguration
+    static class JwtTestConfiguration {
+        @Bean
+        JwtService jwtService() {
+            return new JwtService("customer-controller-test-secret-with-at-least-32-bytes", 3_600_000);
+        }
     }
 
     @Test

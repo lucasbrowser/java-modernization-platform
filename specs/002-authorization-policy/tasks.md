@@ -39,7 +39,9 @@ Esta iniciativa segue o fluxo SDD de `specs/README.md`. As tarefas de implementa
 - **Escopo:** somente ADMIN pode usar `POST /customers`; USER e ADMIN autenticados mantêm consultas GET existentes.
 - **Critérios de aceitação:** ADMIN cria; USER autenticado recebe rejeição de autorização; anônimo recebe `401`; consultas GET funcionam para USER e ADMIN.
 - **Testes esperados:** API para anônimo, USER e ADMIN, incluindo os dois GETs e POST.
-- **Status:** proposta; requer aprovação explícita.
+- **Testes executados:** `CustomerControllerIntegrationTest`: 10 testes, 0 falhas, 0 erros, 0 ignorados; JWT assinado e validado pelo filtro real para criação ADMIN, negação USER, anônimo `401` e consultas de USER/ADMIN.
+- **Suíte completa:** `mvn clean test`: 111 testes, 0 falhas, 0 erros, 0 ignorados. A execução sandboxed falhou ao acessar o JAR Spring Security no repositório Maven; a repetição autorizada com acesso ampliado terminou com BUILD SUCCESS.
+- **Status:** concluída nesta execução. Somente `POST /customers` foi restringido a ADMIN; consultas permanecem disponíveis para USER e ADMIN autenticados.
 
 ## T-04 — Aplicar propriedade e autorização aos pedidos
 
@@ -71,6 +73,6 @@ Não está incluída nas tarefas acima. Criar, corrigir ou remover vínculos por
 - HTTP para `customerId` divergente em `POST /orders`: `403 Forbidden`.
 - HTTP para Customer divergente em `GET /orders/customer/{customerId}`: `404 Not Found`.
 - HTTP para pedido de terceiro em `GET /orders/{id}`: `404 Not Found`, decisão previamente aprovada.
-- T-02.1 e T-02.2 foram concluídas conforme os escopos acima. A próxima tarefa proposta é T-03; ela não foi iniciada e requer aprovação explícita.
+- T-02.1, T-02.2 e T-03 foram concluídas conforme os escopos acima. T-04 e T-05 continuam propostas e não foram iniciadas.
 
-Nesta execução, somente T-02.2 foi implementada. T-03, T-04 e T-05 não foram iniciadas.
+Nesta execução, T-03 foi implementada e concluída após T-02.1 e T-02.2. T-04 e T-05 não foram iniciadas; T-04 aguarda aprovação explícita própria.
