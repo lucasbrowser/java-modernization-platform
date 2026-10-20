@@ -61,7 +61,11 @@ Esta iniciativa segue o fluxo SDD de `specs/README.md`. As tarefas de implementa
 - **Escopo:** fechar lacunas de cobertura e comparar comportamento com todos os critérios da especificação, sem remover nem enfraquecer testes existentes.
 - **Critérios de aceitação:** matriz anônimo/USER/ADMIN, cardinalidade/FK/migração, ausência de associação por e-mail, quatro resultados HTTP definidos, autorização antes de replay, compatibilidade de login e integridade de domínio.
 - **Testes esperados:** execução dos testes pertinentes e da suíte acordada na tarefa aprovada; registrar resultados e limitações.
-- **Status:** proposta; requer aprovação explícita.
+- **Critérios verificados:** JWT/identidade persistida/roles e ausência de vínculo automático (`AuthenticatedUserResolverTest`, `AuthControllerIntegrationTest`, `PostgresContainerIntegrationTest`); matriz de clientes USER/ADMIN/anônimo (`CustomerControllerIntegrationTest`); pedidos próprios, terceiros, sem vínculo, ADMIN multi-Customer, status HTTP e idempotência (`PostgresContainerIntegrationTest`, `OrderServiceTest`, `OrderControllerIntegrationTest`); migration legada, FK, cardinalidade, e-mail coincidente e auditoria append-only (`PostgresContainerIntegrationTest`, `RepositoryIntegrationTest`); estoque e concorrência (`OrderServiceTest`, `OrderConcurrencyIntegrationTest`).
+- **Testes direcionados:** 65 testes nas classes citadas, 0 falhas, 0 erros, 0 ignorados; BUILD SUCCESS.
+- **Suíte completa:** `mvn clean test`: 115 testes, 0 falhas, 0 erros, 0 ignorados; BUILD SUCCESS.
+- **Lacunas e correções:** ampliado o teste PostgreSQL/JWT para ADMIN criar pedidos para dois Customers e para USER sem vínculo receber `403` tanto na consulta por ID quanto por Customer. Nenhum defeito de produção foi encontrado nesta verificação; nenhuma alteração de produção foi necessária.
+- **Status:** concluída nesta execução.
 
 ## Operação futura de associação administrativa
 
@@ -75,6 +79,6 @@ Não está incluída nas tarefas acima. Criar, corrigir ou remover vínculos por
 - HTTP para `customerId` divergente em `POST /orders`: `403 Forbidden`.
 - HTTP para Customer divergente em `GET /orders/customer/{customerId}`: `404 Not Found`.
 - HTTP para pedido de terceiro em `GET /orders/{id}`: `404 Not Found`, decisão previamente aprovada.
-- T-02.1, T-02.2, T-03 e T-04 foram concluídas conforme os escopos acima. T-05 continua proposta e não foi iniciada.
+- T-02.1, T-02.2, T-03, T-04 e T-05 foram concluídas conforme os escopos acima.
 
-Nesta execução, T-04 foi implementada e concluída. T-05 não foi iniciada e aguarda aprovação explícita própria.
+Nesta execução, T-05 foi concluída por verificação integrada e ampliação pontual dos testes existentes.

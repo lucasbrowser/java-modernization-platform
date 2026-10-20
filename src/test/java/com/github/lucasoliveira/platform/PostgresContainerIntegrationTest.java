@@ -514,6 +514,13 @@ class PostgresContainerIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         UUID otherOrderId = UUID.fromString(objectMapper.readTree(adminOrderJson).get("id").asText());
 
+        mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .header("Idempotency-Key", "admin-owner-" + suffix)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(owner.getId(), product.getId())))
+                .andExpect(status().isCreated());
+
         mockMvc.perform(get("/orders/{id}", otherOrderId)
                         .header("Authorization", "Bearer " + userToken))
                 .andExpect(status().isNotFound());
@@ -570,6 +577,9 @@ class PostgresContainerIntegrationTest {
         mockMvc.perform(get("/orders/customer/{customerId}", owner.getId())
                         .header("Authorization", "Bearer " + unlinkedToken))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(get("/orders/{id}", ownerOrderId)
+                        .header("Authorization", "Bearer " + unlinkedToken))
+                .andExpect(status().isForbidden());
         mockMvc.perform(post("/orders")
                         .header("Authorization", "Bearer " + unlinkedToken)
                         .header("Idempotency-Key", "unlinked-" + suffix)
@@ -584,8 +594,8 @@ class PostgresContainerIntegrationTest {
                         .content(ownerBody))
                 .andExpect(status().isUnauthorized());
 
-        assertEquals(3, productRepository.findById(product.getId()).orElseThrow().getStock());
-        assertEquals(1, orderRepository.findByCustomerId(owner.getId()).size());
+        assertEquals(2, productRepository.findById(product.getId()).orElseThrow().getStock());
+        assertEquals(2, orderRepository.findByCustomerId(owner.getId()).size());
         assertEquals(1, orderRepository.findByCustomerId(other.getId()).size());
     }
 
