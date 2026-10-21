@@ -75,3 +75,31 @@ MockMvc foi escolhido como alternativa próxima porque os ensaios com servidor a
 - A estratégia do teste por servidor deve resolver o 401 de teste sem enfraquecer a segurança de produção. Preservar também regressões de sucesso, erros específicos e validação por campo.
 
 **Estado da T-01:** caracterização MVC adicionada e executada; comportamento HTTP completo do servidor não confirmado. A limitação foi documentada; a mensagem 500 permanece proposta e não testada como resposta. Não iniciar T-02 sem nova aprovação explícita.
+
+## Resultado da T-02 — tratamento consistente de erros HTTP
+
+**Status:** concluída nesta execução aprovada, após verificação direcionada e suíte completa.
+
+### Implementação
+
+- `GlobalExceptionHandler` agora mapeia `HttpMessageNotReadableException` para 400, `error=Bad Request`, `message=Malformed request body`, `fields=null`.
+- Exceções inesperadas abrangidas retornam 500, `error=Internal Server Error`, `message=An unexpected error occurred.`, `fields=null`. A mensagem não deriva da exceção.
+- O handler repropaga `AccessDeniedException` e `AuthenticationException`, preservando o tratamento de segurança. Também repropaga `ServletException` e `TypeMismatchException` para que o resolver MVC conserve status padrão desses erros de requisição.
+- `ApiError` e `SecurityConfig` não foram alterados. Não foram criados endpoints de produção.
+
+### Testes adicionados/adaptados
+
+- `ApiErrorContractIntegrationTest` verifica JSON malformado e tipo incompatível (400, corpo `ApiError` e texto genérico), exceção inesperada controlada (500, `ApiError`, mensagem genérica e ausência de sentinela/SQL/nome de classe/stack trace) e preservação dos detalhes de validação por campo.
+- `AuthControllerIntegrationTest` e `GlobalExceptionHandlerTest` foram executados como regressão. Os testes de controller de customer, product e order foram incluídos para cobrir autorização e status existentes.
+- A execução é MockMvc no pipeline MVC com `GlobalExceptionHandler` e `SecurityConfig` efetivos. O teste socket da T-01 retornou 401; por isso, não foi usado para os novos cenários. Como os erros inesperados agora são tratados dentro do advice e os corpos são `ResponseEntity` desse handler, MockMvc verifica os status e corpos resultantes do handler. A política de segurança de produção não foi alterada.
+
+### Resultados reais
+
+- Primeira execução direcionada: 45 testes, 1 falha; `OrderControllerIntegrationTest.shouldReturnBadRequestWhenIdempotencyKeyIsMissing` mostrou regressão 400→500 causada pelo catch-all.
+- Após repropagar exceções Servlet e de tipo, execução direcionada: comando `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" "-Dtest=ApiErrorContractIntegrationTest,AuthControllerIntegrationTest,GlobalExceptionHandlerTest,CustomerControllerIntegrationTest,ProductControllerIntegrationTest,OrderControllerIntegrationTest" test` — BUILD SUCCESS; 45 testes, 0 falhas, 0 erros, 0 ignorados.
+- Suíte completa: `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean test` — BUILD SUCCESS; 119 testes, 0 falhas, 0 erros, 0 ignorados, incluindo PostgreSQL/Testcontainers.
+
+### Limitações
+
+- Os cenários novos verificam status/corpo por MockMvc, não por socket HTTP. A resposta 401 da tentativa socket da T-01 permanece sem causa completamente determinada; não se modificou a segurança para contorná-la.
+- Não foi testado um catálogo exaustivo de todas as exceções do Spring/banco; tratamento amplo de falhas de persistência permanece fora do escopo.

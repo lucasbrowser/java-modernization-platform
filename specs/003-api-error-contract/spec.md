@@ -85,3 +85,7 @@ Esta seção atualiza o estado preliminar registrado antes da execução da T-01
 - Os resultados dos testes direcionados e de `mvn clean test` constam em `tasks.md`.
 
 Limitação: T-01 confirmou a origem MVC dos dois erros de desserialização e que o handler atual não os mapeia para `ApiError`. Não confirmou por HTTP real o corpo desses erros nem o comportamento da resposta inesperada; os testes MockMvc são a alternativa próxima usada nesta tarefa.
+
+## 9. Estado após T-02
+
+A T-02 implementou os mapeamentos descritos nas decisões: `HttpMessageNotReadableException` produz `ApiError` 400 com `Malformed request body`; exceção inesperada abrangida produz `ApiError` 500 com `An unexpected error occurred.`. O corpo usa os campos existentes e `fields=null`. Testes MockMvc verificam status, corpo e ausência de texto interno; a suíte de regressão de segurança passou. Evidências completas e limites do uso de MockMvc estão em `tasks.md`.

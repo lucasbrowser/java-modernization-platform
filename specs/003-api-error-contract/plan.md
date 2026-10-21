@@ -77,3 +77,13 @@ Esta seção atualiza as anotações preliminares de que ainda não havia execu�
 - Comandos/resultados e limitações de cobertura estão no relatório de T-01 em `tasks.md`.
 
 A implementação T-02 deverá acrescentar teste que obtenha a resposta HTTP efetiva de 500 e verifique texto genérico e ausência de detalhes internos. Deve também decidir uma forma de executar o teste por servidor sem alterar a política de segurança de produção.
+
+## 9. Ajuste comprovado na T-02 — preservação do resolver MVC
+
+O teste direcionado de `OrderControllerIntegrationTest` mostrou que o catch-all inicialmente transformava `MissingRequestHeaderException` (chave de idempotência ausente) de 400 em 500. Para manter o comportamento preexistente, o handler genérico repropaga exceções Servlet e de incompatibilidade de tipos, além das exceções de autenticação/autorização; o resolver MVC continua aplicando o status específico. A regressão foi repetida e passou. Não houve mudança em `SecurityConfig`.
+
+A caracterização final usa MockMvc com o advice e a cadeia de segurança reais no slice MVC. Como os novos erros agora são resolvidos no próprio advice, o MockMvc verifica o status e o corpo `ApiError` gerados antes do error dispatch do contêiner. O servidor aleatório/context path havia retornado 401 na T-01; nenhuma mudança de segurança foi feita para contornar isso.
+
+## 10. Resultado final da T-02
+
+Os mapeamentos foram implementados em `GlobalExceptionHandler` e os testes de caracterização agora validam `ApiError` em status 400/500, textos genéricos e ausência de dados internos na resposta. A validação de campos foi preservada. A suíte integral confirmou as regressões do contrato, incluindo o caso de `Idempotency-Key` ausente que inicialmente revelou a conversão indevida de 400 para 500. Resultado final: 119 testes, sem falhas; detalhes em `tasks.md`.

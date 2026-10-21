@@ -1,19 +1,21 @@
 package com.github.lucasoliveira.platform.common.exception;
 
-import com.github.lucasoliveira.platform.common.exception.EmailAlreadyRegisteredException;
-import com.github.lucasoliveira.platform.common.exception.InvalidCredentialsException;
-import jakarta.servlet.http.HttpServletRequest;
+import jakarta.persistence.OptimisticLockException;
+import jakarta.servlet.ServletException;
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import org.hibernate.StaleObjectStateException;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
-import jakarta.persistence.OptimisticLockException;
-import org.hibernate.StaleObjectStateException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -37,6 +39,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(error(400, "Validation Error", "Invalid request data", fields));
     }
 
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ApiError> malformedRequestBody(HttpMessageNotReadableException ex) {
+        return ResponseEntity.badRequest()
+                .body(error(400, "Bad Request", "Malformed request body", null));
+    }
+
     private ApiError error(int status, String error, String message, java.util.Map<String, String> fields) {
         return new ApiError(OffsetDateTime.now(), status, error, message, fields);
     }
@@ -57,6 +65,29 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(apiError);
+    }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<ApiError> unexpected(Exception ex) throws Exception {
+        if (ex instanceof AccessDeniedException accessDeniedException) {
+            throw accessDeniedException;
+        }
+        if (ex instanceof AuthenticationException authenticationException) {
+            throw authenticationException;
+        }
+        if (ex instanceof ServletException servletException) {
+            throw servletException;
+        }
+        if (ex instanceof TypeMismatchException typeMismatchException) {
+            throw typeMismatchException;
+        }
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(error(
+                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                        "Internal Server Error",
+                        "An unexpected error occurred.",
+                        null
+                ));
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
