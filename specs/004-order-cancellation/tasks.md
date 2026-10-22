@@ -1,6 +1,6 @@
 # Tarefas: Cancelamento de pedidos com devolução de estoque
 
-**Estado da iniciativa:** em andamento; T-01 concluída, tarefas seguintes aguardam autorização específica.  
+**Estado da iniciativa:** em andamento; T-01 a T-04 concluídas, T-05 aguarda autorização específica.  
 **Regra SDD:** a aprovação do plano não conclui aprovação automática das tarefas; cada tarefa de implementação aguarda autorização específica.
 
 ## T-01 — Implementar a transição transacional no serviço
@@ -58,11 +58,21 @@
 
 ## T-04 — Provar atomicidade, concorrência e integridade no PostgreSQL
 
-- **Estado:** proposta; depende de T-03 concluída e aprovada.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada; T-05 permanece proposta.
 - **Escopo:** testes de integração para rollback, estado/estoque persistidos, lock do pedido, concorrência de cancelamentos e concorrência com outras atualizações de estoque.
-- **Arquivos prováveis:** novo `OrderCancellationIntegrationTest` ou extensão localizada de `OrderConcurrencyIntegrationTest`; fixtures Testcontainers existentes.
+- **Arquivos:** `src/test/java/com/github/lucasoliveira/platform/order/OrderCancellationPostgresIntegrationTest.java`.
 - **Testes previstos:** sucesso reflete CANCELLED e estoque; injetar falha determinística de persistência sem infraestrutura de produção e comprovar rollback integral; duas chamadas concorrentes restauram exatamente uma vez; versão Product preserva consistência com operação concorrente; pedido CONFIRMED/repetição não causam estoque duplicado.
 - **Critérios objetivos de conclusão:** testes executados contra PostgreSQL/Testcontainers mostram estado final correto, nenhuma atualização parcial e restauração única sob concorrência; método de falha de teste não adiciona endpoint nem chave de produção.
+
+### Resultado executado da T-04 — 2026-10-22
+
+- Criada a classe `OrderCancellationPostgresIntegrationTest`, com PostgreSQL 16 via Testcontainers. As chamadas concorrentes usam duas threads, duas transações `TransactionTemplate` e conexões independentes. Um terceiro JDBC connection mantém a linha do pedido bloqueada enquanto ambas as chamadas iniciam; o teste aguarda a confirmação de duas sessões em espera de lock no `pg_stat_activity` antes de liberar o lock.
+- Concorrência: pedido criado para quantidade 2 reduziu o estoque de 10 para 8. Depois de liberar o lock, ambas as operações retornaram `CANCELLED`; o pedido persistiu `CANCELLED` e o estoque final persistido foi 10. Uma terceira repetição posterior manteve o estoque em 10.
+- Rollback: pedido com dois produtos partiu dos saldos persistidos 8 e 17. Uma trigger PostgreSQL `BEFORE UPDATE OF stock` permitiu a primeira atualização de estoque e levantou a falha configurada na segunda atualização durante o flush do cancelamento. O teste confirmou a mensagem da trigger na cadeia da exceção; após a transação falhar, o pedido permaneceu `CREATED`, os saldos permaneceram 8 e 17 e as versões `Product.version` permaneceram iguais às versões anteriores à tentativa.
+- Regressão: `OrderConcurrencyIntegrationTest` e `ProductOptimisticLockIntegrationTest` também passaram, preservando a verificação existente de concorrência na criação e incremento de versão otimista de Product. Nenhum código de produção, configuração, controller, handler, política de autorização ou migration foi alterado.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean "-Dtest=OrderCancellationPostgresIntegrationTest,OrderConcurrencyIntegrationTest,ProductOptimisticLockIntegrationTest" test` — `BUILD SUCCESS`; compilou 48 fontes de produção e 23 de teste; 4 testes, 0 falhas, 0 erros, 0 ignorados (2 novos cenários de cancelamento, 1 teste de concorrência de pedidos e 1 teste de versionamento otimista de Product).
+- A tentativa inicial no sandbox não encontrou Docker. Uma primeira execução com PostgreSQL encontrou SKUs de fixture acima do limite de 50 caracteres; os identificadores foram encurtados e a execução final com Testcontainers passou. Não se alterou schema ou comportamento de produção para acomodar os testes.
+- Os testes demonstram espera efetiva pelo lock `PESSIMISTIC_WRITE` no PostgreSQL, em duas transações de cancelamento concorrentes. Não houve teste concorrente de cancelamento simultâneo a uma operação independente sobre o mesmo `Product`; o controle otimista existente segue coberto pelo teste de produto já citado.
 
 ## T-05 — Regressão final e fechamento documental
 
