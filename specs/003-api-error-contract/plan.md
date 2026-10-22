@@ -87,3 +87,9 @@ A caracterização final usa MockMvc com o advice e a cadeia de segurança reais
 ## 10. Resultado final da T-02
 
 Os mapeamentos foram implementados em `GlobalExceptionHandler` e os testes de caracterização agora validam `ApiError` em status 400/500, textos genéricos e ausência de dados internos na resposta. A validação de campos foi preservada. A suíte integral confirmou as regressões do contrato, incluindo o caso de `Idempotency-Key` ausente que inicialmente revelou a conversão indevida de 400 para 500. Resultado final: 119 testes, sem falhas; detalhes em `tasks.md`.
+
+## 11. Estado final verificado após T-03 — 2026-10-21
+
+As seções de planejamento preliminar acima foram supersedidas pelo resultado das tarefas em `tasks.md`. T-01/T-02/T-03 estão concluídas: o handler mapeia JSON ilegível para 400 e exceções inesperadas abrangidas para 500 com mensagens genéricas, preserva os mapeamentos específicos e repropaga as exceções do resolver MVC e da segurança. `ApiError` e `SecurityConfig` não foram alterados.
+
+A regressão final cobriu os critérios nos testes de contrato, handler, autenticação, controllers e segurança. A execução foi MockMvc no pipeline MVC; não houve confirmação dos novos casos através de socket HTTP real. A resposta 401 das tentativas com servidor aleatório permanece um risco residual documentado, sem ajuste de segurança para contorná-la. Comandos e resultados reais constam no registro final da T-03 em `tasks.md`.

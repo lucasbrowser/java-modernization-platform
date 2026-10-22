@@ -89,3 +89,9 @@ Limitação: T-01 confirmou a origem MVC dos dois erros de desserialização e q
 ## 9. Estado após T-02
 
 A T-02 implementou os mapeamentos descritos nas decisões: `HttpMessageNotReadableException` produz `ApiError` 400 com `Malformed request body`; exceção inesperada abrangida produz `ApiError` 500 com `An unexpected error occurred.`. O corpo usa os campos existentes e `fields=null`. Testes MockMvc verificam status, corpo e ausência de texto interno; a suíte de regressão de segurança passou. Evidências completas e limites do uso de MockMvc estão em `tasks.md`.
+
+## 10. Estado final verificado após T-03 — 2026-10-21
+
+As anotações preliminares das seções anteriores sobre estado ainda não implementado e testes pendentes foram supersedidas pelos resultados das T-01/T-02/T-03 documentados em `tasks.md`. O `GlobalExceptionHandler` implementa 400 `ApiError` para corpo JSON ilegível (`Malformed request body`) e 500 `ApiError` genérico (`An unexpected error occurred.`); os testes de contrato também verificam validação por campo e ausência de detalhes internos na resposta 500. `ApiError` preserva sua forma existente.
+
+A regressão final relaciona os critérios a testes: JSON inválido, campos de validação e exceção inesperada em `ApiErrorContractIntegrationTest`; 404/400/409 do handler em `GlobalExceptionHandlerTest`; 401/409 de autenticação em `AuthControllerIntegrationTest`; e regressões dos controllers/security nas respectivas suítes. Os testes de respostas novas usam MockMvc com advice e segurança reais no pipeline MVC. Não se afirma que esses cenários foram verificados por socket HTTP; a tentativa com servidor aleatório da T-01 retornou 401 e continua como risco residual. Resultados e comandos exatos estão em `tasks.md`.

@@ -103,3 +103,29 @@ MockMvc foi escolhido como alternativa próxima porque os ensaios com servidor a
 
 - Os cenários novos verificam status/corpo por MockMvc, não por socket HTTP. A resposta 401 da tentativa socket da T-01 permanece sem causa completamente determinada; não se modificou a segurança para contorná-la.
 - Não foi testado um catálogo exaustivo de todas as exceções do Spring/banco; tratamento amplo de falhas de persistência permanece fora do escopo.
+
+## Resultado da T-03 — regressão final e fechamento da iniciativa
+
+**Status:** T-03 concluída; iniciativa `003-api-error-contract` concluída conforme os critérios cobertos por testes e documentação. Nenhum código de produção ou teste foi alterado nesta tarefa.
+
+### Matriz de critérios e evidências
+
+- **JSON malformado e JSON válido incompatível com o DTO (CA-01 a CA-04):** `ApiErrorContractIntegrationTest` verifica, por MockMvc, status 400 e corpo compatível com `ApiError`, incluindo a mensagem estável `Malformed request body`.
+- **Validação por campo:** `ApiErrorContractIntegrationTest.shouldPreserveFieldValidationDetails` verifica status 400 e detalhes em `fields`.
+- **Exceção inesperada:** `ApiErrorContractIntegrationTest` verifica 500, `ApiError`, mensagem `An unexpected error occurred.` e ausência da sentinela, SQL, mensagem interna e nome de classe/stack trace.
+- **Recurso inexistente, argumentos inválidos e optimistic locking:** `GlobalExceptionHandlerTest` cobre 404, 400 e 409, respectivamente.
+- **E-mail já registrado e credenciais inválidas:** `AuthControllerIntegrationTest` cobre os status 409 e 401.
+- **Regressões de controllers e segurança:** os testes de auth, customer, product, order e segurança foram executados; `OrderControllerIntegrationTest.shouldReturnBadRequestWhenIdempotencyKeyIsMissing` protege a preservação do 400 pelo resolver MVC.
+- **Contrato de `ApiError`:** sua forma existente é usada pelos testes e pelo handler; não foi necessária alteração em `ApiError`.
+- **Sucesso/regras de negócio:** nenhum código foi alterado nesta T-03; a suíte completa passou.
+
+Os novos cenários de erro verificam respostas produzidas no pipeline MVC com MockMvc, `GlobalExceptionHandler` e `SecurityConfig` efetivos. Isso não equivale a uma chamada por socket HTTP real. As tentativas com servidor aleatório da T-01 retornaram 401, com causa não determinada; permanece risco residual de não haver confirmação ponta a ponta através do container. Não se declara cobertura por socket.
+
+### Comandos e resultados reais da T-03
+
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" "-Dtest=ApiErrorContractIntegrationTest,AuthControllerIntegrationTest,GlobalExceptionHandlerTest,CustomerControllerIntegrationTest,ProductControllerIntegrationTest,OrderControllerIntegrationTest,ProductOptimisticLockIntegrationTest,PostgresContainerIntegrationTest" test` — BUILD SUCCESS; 59 testes, 0 falhas, 0 erros, 0 ignorados.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean test` — BUILD SUCCESS; 119 testes, 0 falhas, 0 erros, 0 ignorados. Incluiu `PostgresContainerIntegrationTest` (13 testes).
+
+### Estado final
+
+T-01, T-02 e T-03 estão concluídas segundo seus resultados registrados. Os critérios da iniciativa estão relacionados a testes e os mapeamentos preservados foram confirmados. O risco residual é a ausência de verificação dos novos cenários por socket HTTP; os status e corpos declarados acima são evidência de MockMvc/pipeline MVC. Não há defeito comprovado pendente no escopo nem alteração de `spec.md` ou `plan.md` necessária para corrigir os critérios: este registro final esclarece o limite de execução que se aplica às afirmações de cobertura.
