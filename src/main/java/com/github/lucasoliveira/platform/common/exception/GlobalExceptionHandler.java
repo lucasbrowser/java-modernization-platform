@@ -1,5 +1,6 @@
 package com.github.lucasoliveira.platform.common.exception;
 
+import com.github.lucasoliveira.platform.order.service.OrderCancellationConflictException;
 import jakarta.persistence.OptimisticLockException;
 import jakarta.servlet.ServletException;
 import java.time.OffsetDateTime;
@@ -65,6 +66,17 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(apiError);
+    }
+
+    @ExceptionHandler(OrderCancellationConflictException.class)
+    ResponseEntity<ApiError> orderCancellationConflict(OrderCancellationConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(error(
+                        HttpStatus.CONFLICT.value(),
+                        "Conflict",
+                        "Order cannot be cancelled in its current state",
+                        null
+                ));
     }
 
     @ExceptionHandler(Exception.class)

@@ -23,11 +23,20 @@
 
 ## T-02 — Expor o endpoint e o contrato de conflito
 
-- **Estado:** proposta; depende de T-01 concluída e aprovada.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada; T-03 a T-05 permanecem propostas.
 - **Escopo:** adicionar `POST /orders/{id}/cancel`, retorno 200 com `OrderResponse` existente; mapear apenas a exceção nova para 409 `ApiError` com mensagem fixa; manter handlers atuais.
 - **Arquivos prováveis:** `OrderController.java`, `GlobalExceptionHandler.java`, teste MVC de pedidos e, se necessário, teste unitário do handler.
 - **Testes previstos:** sucesso e resposta sem campos novos; inexistente/terceiro 404 com mensagem igual; repetição 200; estado não cancelável 409 com `ApiError`; ID malformado para caracterizar status e corpo MVC; regressão dos handlers 400/401/403/404/409/500 já existentes.
 - **Critérios objetivos de conclusão:** rota sem body e status/DTO conforme especificação; nova exceção dá 409 sem alterar outras exceções; resposta por terceiro é indistinguível de inexistente; testes de MVC passam.
+
+### Resultado executado da T-02 — 2026-10-22
+
+- `POST /orders/{id}/cancel` foi adicionado ao controller. Retorna HTTP 200 e o `OrderResponse` retornado pelo serviço, sem DTO/campos novos.
+- `GlobalExceptionHandler` mapeia somente `OrderCancellationConflictException` a 409 `ApiError`, com texto fixo e `fields=null`. O texto da exceção não é serializado. Não houve tratamento global de `IllegalStateException` nem alteração dos handlers existentes.
+- Testes MVC verificam sucesso, repetição com 200, conflito 409 e forma de `ApiError`, 404 e mensagem neutra para não encontrado/indisponível, ID UUID inválido (400 e corpo vazio no MockMvc), chamada anônima (401) e `IllegalStateException` alheia à nova exceção (500 genérico). Os testes MVC usam MockMvc com `SecurityConfig` e handler reais; não são chamadas por socket HTTP.
+- Regressões incluíram os testes já existentes de validação e mapeamento do handler, além dos testes de serviço da T-01.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean "-Dtest=OrderControllerIntegrationTest,GlobalExceptionHandlerTest,OrderServiceTest" test` — BUILD SUCCESS; compilou 48 fontes de produção e 22 fontes de teste; 42 testes, 0 falhas, 0 erros, 0 ignorados (15 controller, 5 handler, 22 service).
+- Não houve alteração em autorização, configuração, entidade ou migration. T-03, T-04 e T-05 não foram iniciadas.
 
 ## T-03 — Validar autorização ponta a ponta com JWT
 

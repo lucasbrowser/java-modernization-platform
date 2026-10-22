@@ -10,6 +10,7 @@ import com.github.lucasoliveira.platform.order.dto.OrderItemRequest;
 import com.github.lucasoliveira.platform.order.dto.OrderRequest;
 import com.github.lucasoliveira.platform.order.dto.OrderResponse;
 import com.github.lucasoliveira.platform.order.entity.OrderStatus;
+import com.github.lucasoliveira.platform.order.service.OrderCancellationConflictException;
 import com.github.lucasoliveira.platform.order.service.OrderService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,12 +27,14 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.hamcrest.Matchers.nullValue;
 
 @WebMvcTest(OrderController.class)
 @Import({
@@ -199,6 +202,140 @@ class OrderControllerIntegrationTest {
                         .value(customerId.toString()))
                 .andExpect(jsonPath("$[0].status")
                         .value("CREATED"));
+    }
+
+    @Test
+    void shouldCancelOrderAndReturnExistingOrderResponse() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID productId = UUID.randomUUID();
+        OrderResponse response = new OrderResponse(
+                orderId,
+                customerId,
+                OrderStatus.CANCELLED,
+                new BigDecimal("200.00"),
+                null,
+                List.of(new OrderResponse.OrderItemResponse(
+                        productId,
+                        "MOUSE-001",
+                        "Mouse",
+                        2,
+                        new BigDecimal("100.00"),
+                        new BigDecimal("200.00"))));
+        when(service.cancel(orderId)).thenReturn(response);
+
+        mockMvc.perform(post("/orders/{id}/cancel", orderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(orderId.toString()))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.totalAmount").value(200.00))
+                .andExpect(jsonPath("$.items[0].quantity").value(2));
+
+        verify(service).cancel(orderId);
+    }
+
+    @Test
+    void shouldReturnConflictApiErrorForNonCancellableOrder() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(service.cancel(orderId)).thenThrow(
+                new OrderCancellationConflictException("internal state detail"));
+
+        mockMvc.perform(post("/orders/{id}/cancel", orderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message")
+                        .value("Order cannot be cancelled in its current state"))
+                .andExpect(jsonPath("$.fields").value(nullValue()));
+    }
+
+    @Test
+    void shouldReturnNotFoundForMissingOrder() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(service.cancel(orderId)).thenThrow(new ResourceNotFoundException("Order not found"));
+
+        mockMvc.perform(post("/orders/{id}/cancel", orderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Order not found"));
+    }
+
+    @Test
+    void shouldReturnSameNotFoundApiErrorForUnauthorizedOrder() throws Exception {
+        UUID missingOrderId = UUID.randomUUID();
+        UUID unauthorizedOrderId = UUID.randomUUID();
+        when(service.cancel(missingOrderId)).thenThrow(new ResourceNotFoundException("Order not found"));
+        when(service.cancel(unauthorizedOrderId)).thenThrow(new ResourceNotFoundException("Order not found"));
+
+        mockMvc.perform(post("/orders/{id}/cancel", missingOrderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Order not found"));
+
+        mockMvc.perform(post("/orders/{id}/cancel", unauthorizedOrderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Order not found"));
+    }
+
+    @Test
+    void shouldReturnOkWhenCancelRequestIsRepeatedForCancelledOrder() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        OrderResponse response = new OrderResponse(
+                orderId,
+                UUID.randomUUID(),
+                OrderStatus.CANCELLED,
+                BigDecimal.ZERO,
+                null,
+                List.of());
+        when(service.cancel(orderId)).thenReturn(response);
+
+        mockMvc.perform(post("/orders/{id}/cancel", orderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        mockMvc.perform(post("/orders/{id}/cancel", orderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(service, org.mockito.Mockito.times(2)).cancel(orderId);
+    }
+
+    @Test
+    void shouldReturnBadRequestForMalformedOrderId() throws Exception {
+        mockMvc.perform(post("/orders/not-a-uuid/cancel")
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(""));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldRejectUnauthenticatedCancellation() throws Exception {
+        mockMvc.perform(post("/orders/{id}/cancel", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldKeepUnrelatedIllegalStateExceptionAsInternalServerError() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(service.cancel(orderId)).thenThrow(new IllegalStateException("private detail"));
+
+        mockMvc.perform(post("/orders/{id}/cancel", orderId)
+                        .with(user("lucas@example.com")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.message").value("An unexpected error occurred."));
     }
 
     @Test

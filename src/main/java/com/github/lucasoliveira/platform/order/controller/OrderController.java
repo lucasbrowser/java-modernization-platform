@@ -25,6 +25,11 @@ public class OrderController {
         return service.create(request, idempotencyKey);
     }
 
+    @PostMapping("/{id}/cancel")
+    public OrderResponse cancel(@PathVariable UUID id) {
+        return service.cancel(id);
+    }
+
     @GetMapping("/{id}")
     public OrderResponse findById(@PathVariable UUID id) {
         return service.findById(id);
