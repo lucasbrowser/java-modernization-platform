@@ -1,7 +1,7 @@
 # Especificação: Cancelamento de pedidos com devolução de estoque
 
 **Iniciativa:** `004-order-cancellation`  
-**Estado:** proposta de planejamento, aguardando aprovação  
+**Estado:** concluída em 2026-10-22 após execução de T-01 a T-05; limitações residuais em `tasks.md`  
 **Data do planejamento:** 2026-10-22
 
 ## 1. Objetivo
@@ -118,4 +118,4 @@ A mensagem exata do novo conflito de domínio deve ser constante e não conter d
 
 ## 10. Estado
 
-Proposta documental aguardando aprovação explícita. A existência desta especificação não autoriza implementação nem aprovação automática de tarefa.
+Iniciativa implementada e validada pela T-05 em 2026-10-22. A rastreabilidade dos critérios, os resultados da suíte e as limitações observadas estão registrados em `tasks.md`. Permanecem sem comprovação a concorrência do cancelamento com uma operação independente sobre o mesmo produto e os comportamentos já observados para JWT sem usuário persistido e UUID malformado; esses fatos não alteram os critérios funcionais atendidos nem foram modificados nesta tarefa.

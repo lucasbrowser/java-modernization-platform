@@ -1,6 +1,6 @@
 # Tarefas: Cancelamento de pedidos com devolução de estoque
 
-**Estado da iniciativa:** em andamento; T-01 a T-04 concluídas, T-05 aguarda autorização específica.  
+**Estado da iniciativa:** concluída em 2026-10-22 após T-05; limitações residuais documentadas abaixo.  
 **Regra SDD:** a aprovação do plano não conclui aprovação automática das tarefas; cada tarefa de implementação aguarda autorização específica.
 
 ## T-01 — Implementar a transição transacional no serviço
@@ -23,7 +23,7 @@
 
 ## T-02 — Expor o endpoint e o contrato de conflito
 
-- **Estado:** concluída em 2026-10-22 nesta execução autorizada; T-03 a T-05 permanecem propostas.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada.
 - **Escopo:** adicionar `POST /orders/{id}/cancel`, retorno 200 com `OrderResponse` existente; mapear apenas a exceção nova para 409 `ApiError` com mensagem fixa; manter handlers atuais.
 - **Arquivos prováveis:** `OrderController.java`, `GlobalExceptionHandler.java`, teste MVC de pedidos e, se necessário, teste unitário do handler.
 - **Testes previstos:** sucesso e resposta sem campos novos; inexistente/terceiro 404 com mensagem igual; repetição 200; estado não cancelável 409 com `ApiError`; ID malformado para caracterizar status e corpo MVC; regressão dos handlers 400/401/403/404/409/500 já existentes.
@@ -40,7 +40,7 @@
 
 ## T-03 — Validar autorização ponta a ponta com JWT
 
-- **Estado:** concluída em 2026-10-22 nesta execução autorizada; T-04 e T-05 permanecem propostas.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada.
 - **Escopo:** integrar identidade persistida e segurança real à rota de cancelamento, sem enfraquecer `SecurityConfig`.
 - **Arquivos prováveis:** teste dedicado de integração de pedidos, fixtures/utilidades de JWT existentes; produção somente se teste demonstrar defeito concreto de autorização.
 - **Testes previstos:** não autenticado 401; USER vinculado cancela pedido próprio; USER sem vínculo 403; USER de terceiro 404 sem vazamento; ADMIN cancela pedido alheio; pedidos e estoque permanecem inalterados nos casos negados. Usar PostgreSQL/Testcontainers e token JWT real emitido pelo serviço quando apropriado.
@@ -58,7 +58,7 @@
 
 ## T-04 — Provar atomicidade, concorrência e integridade no PostgreSQL
 
-- **Estado:** concluída em 2026-10-22 nesta execução autorizada; T-05 permanece proposta.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada.
 - **Escopo:** testes de integração para rollback, estado/estoque persistidos, lock do pedido, concorrência de cancelamentos e concorrência com outras atualizações de estoque.
 - **Arquivos:** `src/test/java/com/github/lucasoliveira/platform/order/OrderCancellationPostgresIntegrationTest.java`.
 - **Testes previstos:** sucesso reflete CANCELLED e estoque; injetar falha determinística de persistência sem infraestrutura de produção e comprovar rollback integral; duas chamadas concorrentes restauram exatamente uma vez; versão Product preserva consistência com operação concorrente; pedido CONFIRMED/repetição não causam estoque duplicado.
@@ -76,16 +76,26 @@
 
 ## T-05 — Regressão final e fechamento documental
 
-- **Estado:** proposta; depende de T-01 a T-04 concluídas e aprovadas.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada.
 - **Escopo:** mapear critérios CA-01 a CA-14 para testes, revisar diff funcional, executar testes direcionados e suíte completa e registrar resultados reais nesta iniciativa.
 - **Arquivos prováveis:** `spec.md`, `plan.md`, `tasks.md`; correções de produção/teste somente se autorizadas e se defeito for demonstrado.
 - **Testes previstos:** testes unitários e de integração de pedido, concorrência de estoque, autorização, contrato de erro e suíte Maven completa definida na aprovação da tarefa.
 - **Critérios objetivos de conclusão:** critérios aceitos estão rastreados a testes; todos os comandos têm resultado real registrado; nenhuma regressão ou limitação é ocultada; iniciativa só recebe estado concluído após evidência.
 
-## Primeira tarefa de implementação
+### Resultado executado da T-05 — 2026-10-22
 
-A primeira tarefa proposta é **T-01 — Implementar a transição transacional no serviço**. Sua conclusão objetiva exige: leitura/lock do pedido; verificação de propriedade/estado; alteração atômica do pedido e do estoque; repetição segura; exceção de domínio específica para estados não canceláveis; testes unitários passando. T-01 não pretende comprovar ainda o comportamento de lock concorrente/rollback no PostgreSQL, que fica para T-04.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean test` — `BUILD SUCCESS`; compilou 48 fontes de produção e 23 fontes de teste; 138 testes executados, 0 falhas, 0 erros e 0 ignorados. A execução incluiu testes unitários, MVC/segurança, PostgreSQL/Testcontainers, persistência, concorrência, JWT, contrato de erros, criação/idempotência e optimistic locking.
+- A primeira execução no sandbox falhou antes dos testes por `Acesso negado` ao ler `spring-security-web-6.3.4.jar`; a execução completa repetida com permissão elevada terminou com sucesso e iniciou os containers PostgreSQL.
+- Rastreabilidade dos critérios de `spec.md`:
+  - **CA-01, CA-02, CA-03, CA-04 e CA-05:** `shouldEnforceCancellationAuthorizationThroughRealJwtAndPostgres` em `PostgresContainerIntegrationTest` verifica USER próprio, ADMIN, terceiro ocultado como 404, USER sem associação 403 e chamada anônima 401, com JWT real e identidade persistida. O UUID inexistente e o pedido de terceiro têm os mesmos campos de erro relevantes.
+  - **CA-06, CA-08 e CA-09:** `OrderControllerIntegrationTest` e `OrderServiceTest` verificam resposta `OrderResponse` com `CANCELLED`, repetição sem devolução duplicada e conflito 409 específico para estado não cancelável sem mutação.
+  - **CA-07 e CA-07a:** `OrderServiceTest` verifica devolução de itens/produtos, incluindo pedido vazio sem mudança de estoque; os testes de integração verificam estado e saldo persistidos.
+  - **CA-10 e CA-11:** `OrderCancellationPostgresIntegrationTest` comprova rollback após uma trigger falhar no segundo `UPDATE` de estoque e duas transações concorrentes serializadas pelo lock PostgreSQL, com apenas uma devolução.
+  - **CA-12 e CA-13:** a suíte completa passou, incluindo `OrderConcurrencyIntegrationTest`, `ProductOptimisticLockIntegrationTest`, testes de criação/idempotência/autorização e integrações Testcontainers/PostgreSQL. A proteção otimista de Product e regressões existentes permaneceram passando.
+  - **CA-14:** testes MVC verificam que a rota reutiliza `OrderResponse`/`ApiError`; não houve alteração de contratos de endpoints existentes nesta iniciativa.
+- **Pendências e limites comprovados:** (1) não foi testada a concorrência simultânea entre cancelamento e outra operação independente sobre o mesmo Product; (2) JWT válido sem usuário persistido continua resultando em HTTP 500 genérico pelo comportamento observado em T-03; (3) UUID malformado continua observado como HTTP 400 com corpo vazio em MockMvc; (4) os testes MVC usam MockMvc e não alegam validação por socket HTTP. Nenhuma dessas pendências foi modificada ou declarada resolvida nesta tarefa.
+- Os critérios de aceitação funcionais e de regressão CA-01 a CA-14 têm cobertura e evidências registradas nas tarefas anteriores e na execução completa final. A iniciativa pode ser marcada como concluída com as limitações acima mantidas explícitas; não houve alteração de código de produção, configuração, migrations, autorização ou contrato HTTP nesta T-05.
 
 ## Histórico de execução
 
-Nenhuma tarefa foi aprovada ou executada. Não houve alteração de código, migration, configuração ou teste, e nenhum comando de teste foi executado nesta rodada de planejamento.
+O histórico inicial foi escrito na rodada de planejamento, antes das aprovações individuais. As execuções autorizadas de T-01 a T-05 e suas evidências estão registradas nas seções correspondentes acima. A conclusão desta iniciativa não elimina as limitações explicitamente listadas no resultado da T-05.

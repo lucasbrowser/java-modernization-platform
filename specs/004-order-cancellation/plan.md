@@ -1,7 +1,7 @@
 # Plano técnico: Cancelamento de pedidos com devolução de estoque
 
 **Iniciativa:** `004-order-cancellation`  
-**Estado:** proposta, aguardando aprovação  
+**Estado:** executado e validado pela T-05 em 2026-10-22; limitações residuais em `tasks.md`  
 **Base:** inspeção documental e de código em 2026-10-22; nenhuma implementação/teste executado nesta rodada.
 
 ## 1. Estado observado
@@ -87,4 +87,4 @@ Não se prevê alteração em migration, `OrderResponse`, `ApiError`, `SecurityC
 
 ## 8. Estado
 
-Planejamento proposto; aguardando aprovação da iniciativa e autorização explícita da primeira tarefa. Não houve alteração de código, configuração, banco ou teste.
+Plano executado por T-01 a T-04 e regressão final concluída pela T-05 em 2026-10-22. A suíte completa passou. A concorrência entre cancelamento e outra operação independente no mesmo produto ainda não foi comprovada; JWT válido sem usuário persistido continua observado como HTTP 500 genérico e UUID malformado como HTTP 400 com corpo vazio no MockMvc. Evidências detalhadas e rastreabilidade dos critérios estão em `tasks.md`.
