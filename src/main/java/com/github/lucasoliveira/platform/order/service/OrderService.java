@@ -113,6 +113,36 @@ public class OrderService {
         return map(savedOrder);
     }
 
+    @Transactional
+    public OrderResponse cancel(UUID id) {
+        OrderAuthorizationService.Scope scope = authorization.currentScope();
+        Order order = orders.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+        if (!scope.allows(order.getCustomer().getId())) {
+            throw new ResourceNotFoundException("Order not found");
+        }
+
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            return map(order);
+        }
+
+        if (order.getStatus() != OrderStatus.CREATED) {
+            throw new OrderCancellationConflictException(
+                    "Order cannot be cancelled in its current state");
+        }
+
+        for (OrderItem item : order.getItems()) {
+            Product product = item.getProduct();
+            product.setStock(Math.addExact(product.getStock(), item.getQuantity()));
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        entityManager.flush();
+
+        return map(order);
+    }
+
     @Transactional(readOnly = true)
     public OrderResponse findById(UUID id) {
         OrderAuthorizationService.Scope scope = authorization.currentScope();

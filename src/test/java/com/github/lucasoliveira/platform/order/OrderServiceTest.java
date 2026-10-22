@@ -7,8 +7,10 @@ import com.github.lucasoliveira.platform.order.dto.OrderItemRequest;
 import com.github.lucasoliveira.platform.order.dto.OrderRequest;
 import com.github.lucasoliveira.platform.order.dto.OrderResponse;
 import com.github.lucasoliveira.platform.order.entity.Order;
+import com.github.lucasoliveira.platform.order.entity.OrderItem;
 import com.github.lucasoliveira.platform.order.entity.OrderStatus;
 import com.github.lucasoliveira.platform.order.repository.OrderRepository;
+import com.github.lucasoliveira.platform.order.service.OrderCancellationConflictException;
 import com.github.lucasoliveira.platform.order.service.OrderService;
 import com.github.lucasoliveira.platform.order.service.OrderAuthorizationService;
 import com.github.lucasoliveira.platform.product.entity.Product;
@@ -111,6 +113,181 @@ class OrderServiceTest {
         );
 
         verify(orders).save(any(Order.class));
+    }
+
+    @Test
+    void shouldCancelCreatedOrderAndRestoreStockForEveryItem() {
+        UUID orderId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        Customer customer = customerWithId(customerId);
+        Product notebook = productWithId(UUID.randomUUID(), "NOTE-001", 8);
+        Product mouse = productWithId(UUID.randomUUID(), "MOUSE-001", 17);
+        Order order = orderWithItems(customer, OrderStatus.CREATED,
+                orderItem(notebook, 2),
+                orderItem(notebook, 3),
+                orderItem(mouse, 4));
+
+        when(authorization.currentScope())
+                .thenReturn(new OrderAuthorizationService.Scope(false, customerId));
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        OrderResponse response = service.cancel(orderId);
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        assertEquals(13, notebook.getStock());
+        assertEquals(21, mouse.getStock());
+        verify(orders).findByIdForUpdate(orderId);
+        verify(entityManager).flush();
+    }
+
+    @Test
+    void shouldAllowAdminToCancelOrderForAnyCustomer() {
+        UUID orderId = UUID.randomUUID();
+        Product product = productWithId(UUID.randomUUID(), "NOTE-001", 8);
+        Order order = orderWithItems(customerWithId(UUID.randomUUID()), OrderStatus.CREATED,
+                orderItem(product, 2));
+        when(authorization.currentScope())
+                .thenReturn(new OrderAuthorizationService.Scope(true, null));
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        OrderResponse response = service.cancel(orderId);
+
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        assertEquals(10, product.getStock());
+    }
+
+    @Test
+    void shouldCancelCreatedOrderWithoutItemsWithoutChangingStock() {
+        UUID orderId = UUID.randomUUID();
+        Customer customer = customerWithId(UUID.randomUUID());
+        Order order = orderWithItems(customer, OrderStatus.CREATED);
+
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        OrderResponse response = service.cancel(orderId);
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        assertTrue(response.items().isEmpty());
+        verify(entityManager).flush();
+        verifyNoInteractions(products);
+    }
+
+    @Test
+    void shouldNotRestoreStockAgainWhenOrderIsAlreadyCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Product product = productWithId(UUID.randomUUID(), "NOTE-001", 10);
+        Order order = orderWithItems(customerWithId(UUID.randomUUID()), OrderStatus.CANCELLED,
+                orderItem(product, 3));
+
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        OrderResponse response = service.cancel(orderId);
+
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        assertEquals(10, product.getStock());
+        verify(orders).findByIdForUpdate(orderId);
+        verify(entityManager, never()).flush();
+    }
+
+    @Test
+    void shouldRejectNonCreatedOrderWithoutChangingStateOrStock() {
+        UUID orderId = UUID.randomUUID();
+        Product product = productWithId(UUID.randomUUID(), "NOTE-001", 10);
+        Order order = orderWithItems(customerWithId(UUID.randomUUID()), OrderStatus.CONFIRMED,
+                orderItem(product, 3));
+
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        OrderCancellationConflictException exception = assertThrows(
+                OrderCancellationConflictException.class,
+                () -> service.cancel(orderId));
+
+        assertEquals("Order cannot be cancelled in its current state", exception.getMessage());
+        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
+        assertEquals(10, product.getStock());
+        verify(entityManager, never()).flush();
+    }
+
+    @Test
+    void shouldHideAnotherCustomersOrderWhenUserCancelsIt() {
+        UUID orderId = UUID.randomUUID();
+        UUID associatedCustomerId = UUID.randomUUID();
+        Order order = orderWithItems(customerWithId(UUID.randomUUID()), OrderStatus.CREATED);
+        when(authorization.currentScope()).thenReturn(
+                new OrderAuthorizationService.Scope(false, associatedCustomerId));
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> service.cancel(orderId));
+
+        assertEquals("Order not found", exception.getMessage());
+        assertEquals(OrderStatus.CREATED, order.getStatus());
+        verify(entityManager, never()).flush();
+    }
+
+    @Test
+    void shouldNotReadOrderWhenAuthorizationScopeIsDenied() {
+        UUID orderId = UUID.randomUUID();
+        when(authorization.currentScope()).thenThrow(
+                new org.springframework.security.access.AccessDeniedException("Customer association required"));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.cancel(orderId));
+
+        verify(orders, never()).findByIdForUpdate(any(UUID.class));
+    }
+
+    @Test
+    void shouldThrowNotFoundWhenCancellingMissingOrder() {
+        UUID orderId = UUID.randomUUID();
+        when(orders.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                () -> service.cancel(orderId));
+
+        assertEquals("Order not found", exception.getMessage());
+        verify(entityManager, never()).flush();
+    }
+
+    private Customer customerWithId(UUID customerId) {
+        Customer customer = new Customer();
+        ReflectionTestUtils.setField(customer, "id", customerId);
+        return customer;
+    }
+
+    private Product productWithId(UUID productId, String sku, int stock) {
+        Product product = new Product();
+        ReflectionTestUtils.setField(product, "id", productId);
+        product.setSku(sku);
+        product.setName(sku);
+        product.setPrice(new BigDecimal("10.00"));
+        product.setStock(stock);
+        product.setActive(true);
+        return product;
+    }
+
+    private Order orderWithItems(Customer customer, OrderStatus status, OrderItem... items) {
+        Order order = new Order();
+        order.setCustomer(customer);
+        order.setStatus(status);
+        order.setTotalAmount(BigDecimal.ZERO);
+        for (OrderItem item : items) {
+            item.setOrder(order);
+            order.getItems().add(item);
+        }
+        return order;
+    }
+
+    private OrderItem orderItem(Product product, int quantity) {
+        OrderItem item = new OrderItem();
+        item.setProduct(product);
+        item.setQuantity(quantity);
+        item.setUnitPrice(new BigDecimal("10.00"));
+        return item;
     }
 
     @Test
