@@ -9,6 +9,7 @@ import com.github.lucasoliveira.platform.auth.entity.User;
 import com.github.lucasoliveira.platform.auth.repository.UserRepository;
 import com.github.lucasoliveira.platform.auth.service.AuthService;
 import com.github.lucasoliveira.platform.common.security.JwtService;
+import com.github.lucasoliveira.platform.order.entity.OrderStatus;
 import com.github.lucasoliveira.platform.customer.entity.Customer;
 import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;
 import com.github.lucasoliveira.platform.product.entity.Product;
@@ -16,6 +17,7 @@ import com.github.lucasoliveira.platform.product.repository.ProductRepository;
 import com.github.lucasoliveira.platform.order.entity.Order;
 import com.github.lucasoliveira.platform.order.repository.OrderRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -597,6 +599,93 @@ class PostgresContainerIntegrationTest {
         assertEquals(2, productRepository.findById(product.getId()).orElseThrow().getStock());
         assertEquals(2, orderRepository.findByCustomerId(owner.getId()).size());
         assertEquals(1, orderRepository.findByCustomerId(other.getId()).size());
+    }
+
+    @Test
+    void shouldEnforceCancellationAuthorizationThroughRealJwtAndPostgres() throws Exception {
+        String suffix = UUID.randomUUID().toString();
+        Customer owner = saveCustomer("cancel-owner-" + suffix);
+        Customer other = saveCustomer("cancel-other-" + suffix);
+        User linkedUser = saveUser("cancel-linked-" + suffix, Role.USER, owner.getId());
+        User unlinkedUser = saveUser("cancel-unlinked-" + suffix, Role.USER, null);
+        User admin = saveUser("cancel-admin-" + suffix, Role.ADMIN, null);
+
+        Product product = new Product();
+        product.setSku("CANCEL-AUTH-" + suffix);
+        product.setName("Cancellation authorization product");
+        product.setPrice(new BigDecimal("10.00"));
+        product.setStock(10);
+        product.setActive(true);
+        product = productRepository.saveAndFlush(product);
+
+        String linkedToken = jwtService.generateToken(linkedUser.getEmail(), "USER");
+        String unlinkedToken = jwtService.generateToken(unlinkedUser.getEmail(), "USER");
+        String adminToken = jwtService.generateToken(admin.getEmail(), "ADMIN");
+        String unknownUserToken = jwtService.generateToken(
+                "not-persisted-" + suffix + "@example.com", "USER");
+
+        UUID ownerOrderId = createOrderViaJwt(
+                owner.getId(), product.getId(), linkedToken, "cancel-owner-key-" + suffix);
+        UUID otherOrderId = createOrderViaJwt(
+                other.getId(), product.getId(), adminToken, "cancel-other-key-" + suffix);
+        assertEquals(8, productRepository.findById(product.getId()).orElseThrow().getStock());
+
+        mockMvc.perform(post("/orders/{id}/cancel", ownerOrderId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/orders/{id}/cancel", ownerOrderId)
+                        .header("Authorization", "Bearer " + unlinkedToken))
+                .andExpect(status().isForbidden());
+
+        String thirdPartyErrorJson = mockMvc.perform(post("/orders/{id}/cancel", otherOrderId)
+                        .header("Authorization", "Bearer " + linkedToken))
+                .andExpect(status().isNotFound())
+                .andReturn().getResponse().getContentAsString();
+        String missingOrderErrorJson = mockMvc.perform(post("/orders/{id}/cancel", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + linkedToken))
+                .andExpect(status().isNotFound())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode thirdPartyError = objectMapper.readTree(thirdPartyErrorJson);
+        JsonNode missingOrderError = objectMapper.readTree(missingOrderErrorJson);
+        assertEquals(thirdPartyError.get("status"), missingOrderError.get("status"));
+        assertEquals(thirdPartyError.get("error"), missingOrderError.get("error"));
+        assertEquals(thirdPartyError.get("message"), missingOrderError.get("message"));
+        assertEquals(thirdPartyError.get("fields"), missingOrderError.get("fields"));
+        assertEquals("Order not found", thirdPartyError.get("message").asText());
+
+        mockMvc.perform(post("/orders/{id}/cancel", ownerOrderId)
+                        .header("Authorization", "Bearer " + unknownUserToken))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.message").value("An unexpected error occurred."));
+        assertEquals(OrderStatus.CREATED, orderRepository.findById(ownerOrderId).orElseThrow().getStatus());
+        assertEquals(8, productRepository.findById(product.getId()).orElseThrow().getStock());
+
+        mockMvc.perform(post("/orders/{id}/cancel", ownerOrderId)
+                        .header("Authorization", "Bearer " + linkedToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertEquals(OrderStatus.CANCELLED, orderRepository.findById(ownerOrderId).orElseThrow().getStatus());
+        assertEquals(9, productRepository.findById(product.getId()).orElseThrow().getStock());
+
+        mockMvc.perform(post("/orders/{id}/cancel", otherOrderId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertEquals(OrderStatus.CANCELLED, orderRepository.findById(otherOrderId).orElseThrow().getStatus());
+        assertEquals(10, productRepository.findById(product.getId()).orElseThrow().getStock());
+    }
+
+    private UUID createOrderViaJwt(UUID customerId, UUID productId, String token, String idempotencyKey)
+            throws Exception {
+        String response = mockMvc.perform(post("/orders")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(customerId, productId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
     private Customer saveCustomer(String suffix) {

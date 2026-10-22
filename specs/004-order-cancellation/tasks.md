@@ -40,11 +40,21 @@
 
 ## T-03 — Validar autorização ponta a ponta com JWT
 
-- **Estado:** proposta; depende de T-02 concluída e aprovada.
+- **Estado:** concluída em 2026-10-22 nesta execução autorizada; T-04 e T-05 permanecem propostas.
 - **Escopo:** integrar identidade persistida e segurança real à rota de cancelamento, sem enfraquecer `SecurityConfig`.
 - **Arquivos prováveis:** teste dedicado de integração de pedidos, fixtures/utilidades de JWT existentes; produção somente se teste demonstrar defeito concreto de autorização.
 - **Testes previstos:** não autenticado 401; USER vinculado cancela pedido próprio; USER sem vínculo 403; USER de terceiro 404 sem vazamento; ADMIN cancela pedido alheio; pedidos e estoque permanecem inalterados nos casos negados. Usar PostgreSQL/Testcontainers e token JWT real emitido pelo serviço quando apropriado.
 - **Critérios objetivos de conclusão:** todos os status/escopos são comprovados pela cadeia real de filtro e identidade; nenhuma regra das iniciativas 002/003 é enfraquecida ou alterada indevidamente.
+
+### Resultado executado da T-03 — 2026-10-22
+
+- Adicionado `shouldEnforceCancellationAuthorizationThroughRealJwtAndPostgres` em `PostgresContainerIntegrationTest`. O teste usa o `JwtAuthenticationFilter`, `JwtService`, `SecurityConfig`, `AuthenticatedUserResolver`, repositórios e `OrderService` reais com PostgreSQL/Testcontainers; não usa mocks para autenticação/autorização.
+- Observações HTTP da rota de cancelamento: anônimo `401`; USER persistido sem Customer `403`; USER vinculado cancelando pedido próprio `200` com `CANCELLED`; USER vinculado tentando cancelar pedido de outro Customer `404`; ADMIN cancelando pedido de outro Customer `200` com `CANCELLED`.
+- A resposta do pedido de terceiro foi comparada com a de um UUID inexistente nos campos `status`, `error`, `message` e `fields`; os valores foram iguais (`404`, `Not Found`, `Order not found`, `null`). Timestamp não foi comparado por ser gerado por resposta.
+- Um JWT válido e assinado pelo `JwtService`, cujo subject não corresponde a usuário persistido, chegou ao `AuthenticatedUserResolver`, que lançou `AuthenticatedUserNotFoundException`; o `GlobalExceptionHandler` atual retornou `500` com mensagem genérica. O pedido permaneceu `CREATED` e o estoque não mudou. Esse status é o comportamento efetivamente observado; não foi definida nesta tarefa uma política 401/403 para essa identidade sem registro.
+- O teste também confirmou o estoque antes/depois dos pedidos negados e após os cancelamentos autorizados: o estoque não mudou por chamada negada; cada cancelamento permitido restaurou uma unidade.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean "-Dtest=PostgresContainerIntegrationTest" test` — compilou 48 fontes de produção e 22 de teste; com permissão elevada, `BUILD SUCCESS`: `PostgresContainerIntegrationTest` executou 14 testes, 0 falhas, 0 erros, 0 ignorados, incluindo o novo cenário de autorização. A primeira tentativa sem permissão elevada não encontrou Docker; a repetição autorizada pôde iniciar Testcontainers.
+- A integração usa MockMvc com o filtro JWT e o contexto Spring reais; não é uma chamada por socket HTTP. Não houve alteração de produção ou das políticas de autorização.
 
 ## T-04 — Provar atomicidade, concorrência e integridade no PostgreSQL
 
