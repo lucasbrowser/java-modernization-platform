@@ -30,12 +30,15 @@
 
 ## T-03 — Validar autorização e identidade persistida
 
-- **Estado:** proposta; depende de T-01 e T-02 concluídas e aprovadas.
+- **Estado:** concluída em 2026-10-23 para a matriz JWT, autorização persistida do ator e auditoria das operações; não implica conclusão da iniciativa.
 - **Objetivo:** provar autorização ADMIN pelo filtro JWT e a verificação adicional do papel persistido de ator e alvo.
 - **Arquivos/componentes prováveis:** novo controller/service de T-01/T-02; `AuthenticatedUserResolver`; testes de integração de vínculo/JWT, preferencialmente em classe dedicada ou `PostgresContainerIntegrationTest`.
 - **Critérios de aceite:** anônimo `401`; USER `403`; ADMIN autenticado e persistido pode operar; role ADMIN apenas no JWT, sem ator ADMIN persistido, não altera vínculo/auditoria; alvo persistido ADMIN é rejeitado conforme contrato de T-01; ator de auditoria sempre é o usuário persistido resolvido, não dado do cliente.
 - **Testes previstos:** JWT assinado via `JwtService`, filtro e identidade persistida reais; checar estado do vínculo e auditoria em cada caso negado/autorizado.
 - **Limites:** não reclassificar o HTTP do JWT sem usuário persistido fora da nova operação; não enfraquecer `SecurityConfig`; não alterar o JWT.
+- **Implementação e evidências:** criada `UserCustomerLinkAuthorizationPostgresIntegrationTest`, com `MockMvc`, filtro JWT, serviço real e PostgreSQL/Testcontainers. Os casos exercitam anonimato e USER persistido nos dois endpoints; ADMIN persistido associa, troca e remove, com ator/snapshots/actions conferidos na tabela de auditoria; role ADMIN no JWT com role persistida alterada para USER é recusada nos dois endpoints sem alteração; alvo ADMIN é rejeitado com `400 ApiError`. Para JWT válido com subject sem usuário persistido, ambos endpoints observaram `500` e a mensagem genérica do handler existente; vínculo e auditoria permaneceram inalterados. A política global não foi alterada.
+- **Validação executada:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" "-Dtest=UserCustomerLinkAuthorizationPostgresIntegrationTest,AdminUserCustomerLinkControllerIntegrationTest,UserCustomerLinkServiceTest" test` — `BUILD SUCCESS`; 28 testes, 0 falhas, 0 erros, 0 ignorados (5 PostgreSQL/Testcontainers, 10 MVC T-02 e 13 unitários T-01).
+- **Limites da evidência:** Testcontainers exerce PostgreSQL e banco real, porém as requisições usam `MockMvc`, não socket HTTP. Não foram alterados filtros, regras ou handlers de produção.
 
 ## T-04 — Comprovar persistência, rollback e concorrência
 
