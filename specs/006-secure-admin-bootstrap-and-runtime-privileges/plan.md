@@ -6,7 +6,7 @@
 
 ## 1. Decisões e direção técnica
 
-D-01 a D-05 e DP-01 a DP-06 estão aprovadas e incorporadas à [especificação](spec.md). Esta aprovação documental não autoriza implementação nem marca T-01 como iniciada. As tarefas continuam pendentes de autorização individual.
+D-01 a D-05 e DP-01 a DP-06 estão aprovadas e incorporadas à [especificação](spec.md). A análise documental da T-01 foi concluída; isso não valida implementação nem concede autorização para T-02 ou T-03.
 
 Direções obrigatórias: comando one-shot interativo sem eco para bootstrap; outro ADMIN existente implica recusa sem mutação; role bootstrap exclusiva; Flyway em job/processo one-shot separado da API; transição de bancos existentes versionada e forward-only; runtime sem credenciais privilegiadas; container com UID/GID numéricos estáveis não root. Não criar endpoint HTTP de bootstrap. A política JWT quando ADMIN persistido for rebaixado permanece fora do escopo.
 
@@ -27,17 +27,17 @@ Direções obrigatórias: comando one-shot interativo sem eco para bootstrap; ou
 
 Criar uma entrada one-shot acionada por comando administrativo explícito, executada sem servidor HTTP e encerrada após o resultado. Não basta ativar um profile que também inicie a API ou Flyway com credencial privilegiada.
 
-Ler a senha de stdin em terminal interativo sem eco; nunca de argumento de processo. Bootstrap automatizado não está aprovado. Se vier a ser necessário, decidir separadamente o canal não interativo antes de implementá-lo; não introduzir secret manager nesta iniciativa. Normalizar e validar e-mail conforme `AuthService` (lowercase com `Locale.ROOT`), validar nome/senha segundo regras de cadastro e usar o `PasswordEncoder` BCrypt existente. O resultado operacional deve distinguir criado, no-op, conflito e falha, sem imprimir senha.
+Ler a senha de stdin em terminal interativo sem eco; nunca de argumento de processo. Bootstrap automatizado não está aprovado. Se vier a ser necessário, decidir separadamente o canal não interativo antes de implementá-lo; não introduzir secret manager nesta iniciativa. Normalizar e validar e-mail conforme `AuthService` (lowercase com `Locale.ROOT`, sem `strip`; duplicidade consultada sem diferenciar maiúsculas/minúsculas), validar nome/senha segundo regras existentes de cadastro e usar o `PasswordEncoder` BCrypt existente. A inicialização normal da API não exige configurações de bootstrap. O resultado operacional deve distinguir criado, no-op, conflito e falha com códigos de saída documentados em CA-04a, sem imprimir senha.
 
 Dentro de uma transação, coordenar concorrência com lock PostgreSQL transacional (por exemplo, advisory lock) ou mecanismo equivalente comprovado com sessões independentes. Em seguida: mesmo e-mail já ADMIN => no-op, sem comparar/redefinir senha; mesmo e-mail já USER => conflito; e-mail novo e qualquer outro ADMIN existente => conflito/recusa; sem ADMIN e e-mail livre => inserir o primeiro ADMIN. Não atualizar ou promover registros existentes. Rollback em falha.
 
-A role exclusiva de bootstrap nunca é injetada na API. Em T-01, caracterizar os grants PostgreSQL possíveis para esse fluxo; implementar somente após provar que a role runtime não pode criar/promover ADMIN e que a credencial bootstrap é restrita ao comando. Não presumir que role SQL simples consegue restringir `INSERT` somente a esse propósito.
+A role exclusiva de bootstrap nunca é injetada na API. O fluxo público de cadastro persiste usuários `USER`, portanto a role runtime precisa ter escrita necessária em `users`. A política deve ser imposta pelo PostgreSQL: permitir esse cadastro e impedir INSERT de ADMIN, promoção de USER para ADMIN e alteração/desativação da proteção pela role runtime. O mecanismo (trigger, RLS, função ou equivalente) permanece decisão técnica para prova T-03; não conceder nem negar INSERT indiscriminadamente. Preservar as operações Customer-link e INSERT de auditoria necessárias, sem UPDATE/DELETE de auditoria.
 
 ### 3.2 Flyway, roles e grants (T-03)
 
 Executar Flyway em processo/job one-shot antes do rollout da API. Avaliar duas opções de engenharia: job usando a dependência Flyway já presente no projeto, ou CLI/plugin com versão e localização de migrations sincronizadas. Preferir a que reutilize os arquivos versionados com menor duplicação e não inicialize a API com segredo de migration. A seleção decorre de análise técnica em T-01, sem alterar o contrato aprovado.
 
-Provisionar separadamente: identidade administrativa do banco; migrator não superusuário com direitos de DDL/ownership estritamente necessários; runtime com `USAGE` no schema e DML derivado das queries reais; bootstrap role exclusiva e ausente da API. Runtime não recebe DDL, `CREATE ROLE/DB`, `DELETE` ou `TRUNCATE`; auditoria exige INSERT sem UPDATE/DELETE. Validar SQL Hibernate para escolher grants por tabela/coluna.
+Provisionar separadamente: identidade administrativa do banco; migrator não superusuário com direitos de DDL/ownership estritamente necessários; runtime com `USAGE` no schema e DML derivado das queries reais; bootstrap role exclusiva e ausente da API. Runtime pode inserir registros `USER` pelo cadastro e executar Customer-link e auditoria, mas a proteção PostgreSQL deve negar criação/promoção para ADMIN e não pode ser removível ou desativável pelo runtime. Runtime não recebe DDL, `CREATE ROLE/DB`, `DELETE` ou `TRUNCATE`; auditoria exige INSERT sem UPDATE/DELETE. Validar SQL Hibernate para escolher grants por tabela/coluna.
 
 Investigar permissões reais de `pgcrypto` em PostgreSQL 16. Se instalar extensão exigir direito que o migrator não deve ter, pré-provisionar extensão por identidade administrativa, sem dar superuser ao migrator. Banco novo: provisionar papéis e pré-requisitos, migrar, verificar grants, iniciar API. Falha do job bloqueia início/rollout da nova versão; não apagar banco nem volume.
 
@@ -67,7 +67,7 @@ Preservar a numeração T-01 a T-06. Ordem recomendada de execução: **T-01 →
 
 | Ordem | Tarefa | Dependências técnicas | Resultado esperado |
 |---|---|---|---|
-| 1 | T-01 — Caracterizar estado e fechar contrato técnico | Autorização explícita de T-01 | Registrar comportamento atual, contrato do comando, fluxo de credenciais, executor Flyway possível, grant bootstrap, grants e critérios de transição; sem implementação. |
+| 1 | T-01 — Caracterizar estado e fechar contrato técnico | Concluída no plano documental; sem implementação | Registrar comportamento atual, contrato do comando, fluxo de credenciais, executor Flyway possível, grants e critérios de transição; sem implementação. |
 | 2 | T-03 — Separar roles e migrations; transição DB | T-01 | Provar migration/runtime/bootstrap roles, pgcrypto, banco novo e upgrade forward-only; adaptar infraestrutura de Testcontainers sem enfraquecer testes. |
 | 3 | T-02 — Bootstrap explícito idempotente | T-01 e **T-03 antes da integração** para role/credenciais; desenvolvimento isolado de domínio pode ocorrer após aprovação, sem conceder integração antecipada | Implementar comando, transação/concorrência, stdin sem eco e testes. A API nunca recebe bootstrap credential. |
 | 4 | T-04 — Imagem nonroot | T-01 para UID/GID e requisitos de filesystem | Executar imagem real e validar permissões, JVM, Postgres, temporários e health. |

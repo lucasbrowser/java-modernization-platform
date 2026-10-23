@@ -66,11 +66,13 @@ Os IDs DP-01 a DP-06 foram aprovados pelo usuário em “SDD — Iniciativa 006:
 
 ### RF-01 — Bootstrap sob demanda
 
-Somente um comando explicitamente invocado pode provisionar o primeiro ADMIN. O startup da API e os perfis/ambientes não executam bootstrap automaticamente.
+Somente um comando explicitamente invocado pode provisionar o primeiro ADMIN. O startup da API e os perfis/ambientes não executam bootstrap automaticamente. A API normal não depende de variáveis, credenciais ou configuração de bootstrap; a ausência delas não pode impedir seu startup.
 
 ### RF-02 — Credenciais
 
-O operador fornece nome e e-mail e digita a senha interativamente em terminal, com entrada sem eco pelo stdin. A senha não pode ser passada como argumento de processo nem aparecer em logs, código ou arquivos versionados. Bootstrap automatizado não está aprovado; se for necessário, deve ser objeto de decisão operacional específica antes de se definir canal não interativo, sem introduzir secret manager nesta iniciativa. O comando valida os dados com regras compatíveis com o cadastro existente e usa o `PasswordEncoder` atual.
+O operador fornece nome e e-mail e digita a senha interativamente em terminal, com entrada sem eco pelo stdin. A senha não pode ser passada como argumento de processo nem aparecer em logs, código ou arquivos versionados. Bootstrap automatizado não está aprovado. O comando valida os dados com regras compatíveis com o cadastro existente e usa o `PasswordEncoder` atual.
+
+E-mail deve seguir a normalização atual do registro: `toLowerCase(Locale.ROOT)`, consulta de duplicidade sem distinção de caixa e constraint de unicidade existente. Não introduzir `strip()` nem outra normalização.
 
 ### RF-03 — Identidade e idempotência
 
@@ -86,7 +88,7 @@ Provisionamento do banco, migration e runtime usam identidades separadas. API n�
 
 ### RF-06 — Privilégios runtime
 
-Os grants são derivados do SQL e dos fluxos atuais. Incluem leitura e DML realmente necessários, inclusive INSERT de auditoria. Não conceder DDL nem DELETE/TRUNCATE por conveniência; runtime não pode alterar/remover auditoria. A granularidade por tabela/coluna será comprovada com Hibernate e Testcontainers.
+Os grants são derivados do SQL e dos fluxos atuais. Runtime deve permitir o cadastro normal de usuários `USER`, inclusive escrita necessária em `users`, mas o PostgreSQL deve negar à role runtime a criação de usuários `ADMIN` e a promoção de usuários existentes para `ADMIN`. Runtime também não pode alterar nem desabilitar os mecanismos que impõem essa restrição. As operações normais de vínculo Customer e INSERT de auditoria permanecem permitidas; runtime não pode atualizar/remover auditoria. Não conceder DDL, `DELETE` ou `TRUNCATE` por conveniência. O mecanismo de proteção permanece aberto para investigação entre trigger, RLS, função controlada ou equivalente e deve ser provado com PostgreSQL/Testcontainers.
 
 ### RF-07 — Migrations
 
@@ -106,14 +108,15 @@ Segredos não são versionados nem registrados. Procedimentos de bootstrap, migr
 
 ## 5. Critérios de aceitação
 
-- **CA-01:** startup normal não cria ADMIN e nenhum segredo administrativo fixo permanece no código/configuração.
-- **CA-02:** comando explícito cria o primeiro ADMIN em transação; mesmo ADMIN/e-mail é no-op sem redefinição; USER com mesmo e-mail e existência de ADMIN diferente são conflitos sem alteração de contas ou duplicidade.
+- **CA-01:** startup normal não cria ADMIN, não exige configuração/credencial de bootstrap e não falha por sua ausência; nenhum segredo administrativo fixo permanece no código/configuração.
+- **CA-02:** comando explícito cria o primeiro ADMIN em transação; mesmo ADMIN/e-mail é no-op sem redefinição; USER com mesmo e-mail e existência de ADMIN diferente são conflitos sem alteração de contas ou duplicidade. E-mail usa `toLowerCase(Locale.ROOT)`, consulta case-insensitive e constraint de unicidade atual, sem `strip()` adicional.
 - **CA-03:** nenhum ambiente executa bootstrap automaticamente; ausência de ADMIN não aciona provisão implícita e o comportamento de operação está documentado.
-- **CA-04:** senha é digitada em terminal sem eco pelo stdin; validação/hash usam convenções existentes; senha não aparece em argumentos, logs ou artefatos versionados. Execução automatizada só pode ser incluída após decisão operacional específica.
+- **CA-04:** senha é digitada em terminal sem eco pelo stdin; validação/hash usam convenções existentes; senha não aparece em argumentos, logs ou artefatos versionados. Execução não interativa permanece fora do escopo aprovado.
+- **CA-04a — Resultados do comando:** criado: sucesso, saída `0`; ADMIN solicitado já existe: no-op sem alteração, saída `0`; outro ADMIN ou USER com e-mail solicitado: conflito sem alteração, saída `3`; argumentos/modo/entrada inválidos: falha de uso/validação, saída `2`; falha operacional: falha com rollback, saída `1`. Mensagens distinguem os resultados sem revelar senha/hash, SQL interno, stack trace ou credenciais.
 - **CA-05:** runtime, migration e provisionamento são identidades distintas; processo normal da API não recebe credenciais privilegiadas.
 - **CA-06:** Flyway aplica migrations em PostgreSQL limpo com identidade não superusuária; extensão `pgcrypto` funciona pela estratégia aprovada.
-- **CA-07:** API inicia com papel runtime e `ddl-auto: validate`; operações suportadas passam com os grants definidos.
-- **CA-08:** papel runtime não executa DDL, não cria banco/papéis, não apaga/trunca entidades e não altera/remove auditoria.
+- **CA-07:** API inicia sem configuração de bootstrap, com papel runtime e `ddl-auto: validate`; operações suportadas, inclusive registro normal de USER, passam com os grants definidos.
+- **CA-08:** PostgreSQL permite à role runtime inserir usuários USER e realizar vínculo Customer/auditoria, mas nega criar ADMIN ou promover USER a ADMIN; runtime não consegue alterar/desabilitar essa proteção, executar DDL, criar banco/papéis, apagar/truncar dados ou alterar/remover auditoria.
 - **CA-09:** bancos novos e existentes podem adotar papéis e ownership novos sem perda de dados e sem editar migrations históricas.
 - **CA-10:** configurações reutilizáveis falham de forma clara se faltarem segredos, sem usar senha fraca nem expor valores no erro.
 - **CA-11:** imagem final executa como UID não zero e acessa somente arquivos/diretórios necessários; comprovação ocorre em execução da imagem.
@@ -125,14 +128,14 @@ Segredos não são versionados nem registrados. Procedimentos de bootstrap, migr
 
 | Critério | Comportamento exigido | Decisão | Situação | Ajuste documental | Evidência futura |
 |---|---|---|---|---|---|
-| CA-01 | Sem ADMIN automático ou senha fixa | D-01, D-02 | Compatível | Explicitado em RF-01 e CA-01 | Teste de startup sem ADMIN e inspeção de config/código |
-| CA-02 | Criação inicial e semântica de repetição/conflitos | D-01, D-03, DP-01 | Compatível | Mesmo ADMIN/e-mail é no-op; USER ou outro ADMIN causam recusa sem alteração | Testes do comando com banco; hash inalterado; corrida |
+| CA-01 | Sem ADMIN automático, segredo fixo ou configuração de bootstrap no runtime | D-01, D-02 | Compatível | Explicita independência do startup em relação à configuração de bootstrap | Start sem bootstrap variables/role; ausência de seed |
+| CA-02 | Criação inicial e semântica de repetição/conflitos; e-mail normalizado | D-01, D-03, DP-01 | Compatível | Define regra de e-mail e resultados por cenário | Testes de comando e banco; normalização; hash imutável; corrida |
 | CA-03 | Sem bootstrap implícito em qualquer ambiente | D-02 | Compatível | Removida restrição implícita a dev | Execução de API com perfis/configuração por ambiente |
-| CA-04 | Validação, hash e sigilo da senha | D-01, D-02, DP-02 | Compatível | Define stdin interativo sem eco; automação fica fora até decisão operacional própria | Testes de entrada; inspeção de logs/args/artefatos |
+| CA-04 | Validação, hash, entrada segura e resultados de saída | D-01, D-02, DP-02 | Compatível | Registra stdin interativo, códigos e mensagens seguras | Testes de entrada/saída; inspeção de logs/args/artefatos |
 | CA-05 | Credenciais/identidades separadas | D-04 | Compatível | Distingue etapa/processo da configuração Flyway | Inspeção de env/config do processo API e conexões reais |
 | CA-06 | Flyway não superusuário em banco vazio, inclusive pgcrypto | D-04, DP-03 | Compatível, sujeito a prova técnica | Job one-shot aprovado; executor e privilégio de extensão a comprovar | Testcontainers PostgreSQL 16 com role de migration |
-| CA-07 | API com runtime e validate | D-04 | Compatível | Mantido como requisito explícito | Subir contexto e exercitar endpoints com role runtime |
-| CA-08 | Runtime sem DDL/destruição/auditoria mutável | D-04 | Compatível | Grants devem refletir SQL real | Tentativas SQL negadas e operações válidas via API |
+| CA-07 | API sem configuração bootstrap, runtime+validate, fluxos normais incluindo registro USER | D-01, D-04 | Compatível | Inclui ausência de bootstrap config e registro USER | Subir API e exercitar registro/negócio com role runtime |
+| CA-08 | Runtime registra USER e opera vínculo/auditoria, mas não cria/promove ADMIN nem desativa proteção | D-04, DP-05 | Compatível; requer prova PostgreSQL | Substitui proibição absoluta de INSERT por escrita limitada pelo banco | Testcontainers: USER permitido; ADMIN insert/update e alteração da proteção negados |
 | CA-09 | Migração segura de bancos existentes | D-04, DP-04 | Compatível | Transição versionada, forward-only e com recuperação aprovada | Clone/fixture com dados antes/depois e runbook exercitado |
 | CA-10 | Sem fallback inseguro | D-04 | Compatível | Especificado para configs reutilizáveis | Teste de configuração incompleta e logs sem valores |
 | CA-11 | Container efetivamente não root | D-05 | Compatível | Exige prova em runtime, não só Dockerfile | Smoke check da imagem e UID/GID observados |
@@ -159,8 +162,8 @@ DP-01 a DP-06 estão aprovadas e não são bloqueios decisórios. Permanecem ati
 
 1. Comparar job one-shot baseado na dependência Flyway do projeto com CLI/plugin, escolhendo integração que use as migrations versionadas sem iniciar a API com segredo privilegiado.
 2. Verificar em PostgreSQL 16 os privilégios necessários para V1 instalar `pgcrypto`; preferir pré-provisionamento da extensão se isso mantiver o migrator sem superuser.
-3. Definir grants mínimos da role exclusiva de bootstrap sem permitir criação de ADMIN pela role runtime. Inspecionar os mecanismos PostgreSQL e não conceder INSERT em `users` ao runtime.
-4. Definir mensagens e códigos de saída do comando para criação, no-op, conflito e falha, sem expor dados sensíveis.
+3. Definir grants mínimos da role exclusiva de bootstrap sem permitir criação/promoção de ADMIN pela role runtime. O runtime precisa escrever em `users` para registrar USER; a restrição deve ser imposta no PostgreSQL. Não conceder nem negar INSERT indiscriminadamente sem provar esse contrato.
+4. Implementar mensagens e códigos de saída do comando conforme CA-04a e verificar que não expõem dados sensíveis.
 5. Bootstrap interativo é o contrato aprovado. Se surgir necessidade de automação, registrar decisão operacional específica antes de definir entrada não interativa; secret manager está fora do escopo aprovado.
 6. Especificar inventário, pré-condições, backup e recuperação para bancos existentes; não assumir rollback automático de migrations nem retorno a superusuário.
 7. Confirmar diretórios em que JVM/aplicação escrevem e provar UID/GID estáveis sem permissões amplas.
