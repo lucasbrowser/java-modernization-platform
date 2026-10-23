@@ -18,12 +18,15 @@
 
 ## T-02 — Expor API REST
 
-- **Estado:** proposta; depende de T-01 concluída e aprovada.
+- **Estado:** concluída em 2026-10-23 para a API REST, validação HTTP e testes MVC; não implica conclusão da iniciativa.
 - **Objetivo:** publicar `PUT /admin/users/{userId}/customer-link` para associar/trocar e `POST /admin/users/{userId}/customer-link/removal` para remover, conforme contrato aprovado em T-01; ambos retornam DTO/status acordados.
 - **Arquivos/componentes prováveis:** novo controller em `auth.controller`; novos DTOs em `auth.dto`; `GlobalExceptionHandler` somente para exceção específica aprovada e necessária; `UserCustomerLinkControllerIntegrationTest`.
 - **Critérios de aceite:** mappings, métodos HTTP, corpos, respostas, status, validação e `ApiError` correspondem ao contrato aprovado; nenhuma rota de consulta/exportação de auditoria é criada; nenhum `actorUserId` é aceito na entrada.
 - **Testes previstos:** MockMvc para sucesso, associação repetida, troca, remoção, validação e recursos inexistentes; verificar corpo e ausência de campos sensíveis.
 - **Limites:** somente as rotas novas e seus DTOs; não alterar APIs de auth, customer, product ou order.
+- **Implementação e evidências:** adicionados `AdminUserCustomerLinkController`, DTOs de associação/remoção/resposta e `AdminUserCustomerLinkControllerIntegrationTest`. O controller expõe PUT para associar/trocar e POST `/removal` para remover, ambos com `200`, encaminhando ao serviço T-01. Os DTOs aplicam `strip()` antes das validações `@NotBlank`/`@Size(max=500)`; o DTO de resposta inclui `customerId: null` explicitamente. A rota usa `@PreAuthorize("hasRole('ADMIN')")`; nenhuma identidade de ator é aceita no corpo.
+- **Validação executada:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" "-Dtest=AdminUserCustomerLinkControllerIntegrationTest,UserCustomerLinkServiceTest" test` — `BUILD SUCCESS`; 23 testes, 0 falhas, 0 erros, 0 ignorados (10 MVC e 13 unitários T-01). Execuções iniciais encontraram falhas em expectativas/entrada do teste; os testes foram corrigidos e a execução final passou.
+- **Limites da evidência:** testes MVC exercitam JWT assinado para as roles ADMIN/USER, a cadeia de filtros, status e formato JSON; o serviço é mockado, portanto papel ADMIN persistido, gravação/auditoria, atomicidade e lock PostgreSQL não são comprovados. Não foi testado socket HTTP.
 
 ## T-03 — Validar autorização e identidade persistida
 
