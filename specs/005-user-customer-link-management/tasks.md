@@ -1,6 +1,6 @@
 # Tarefas: Administração de vínculo User–Customer
 
-**Estado da iniciativa:** não finalizada; T-01 a T-04 concluídas, T-05 revisada com pendência de evidência do CA-15.  
+**Estado da iniciativa:** concluída em 2026-10-23 após evidência direta do CA-15 na T-06; T-01 a T-06 concluídas.
 **Regra SDD:** cada tarefa foi executada somente após autorização explícita individual. A T-05 não pôde declarar a iniciativa concluída porque seu escopo documental não permite fechar a lacuna de teste identificada.
 
 ## T-01 — Contrato e regras do serviço
@@ -54,7 +54,7 @@
 
 ## T-05 — Regressão final e fechamento
 
-- **Estado:** não concluída para fechamento integral; revisão e regressão executadas em 2026-10-23, com evidência pendente do CA-15. A iniciativa permanece não finalizada.
+- **Estado:** revisão e regressão executadas em 2026-10-23; a lacuna do CA-15 identificada nesta tarefa foi coberta posteriormente na T-06, que concluiu o fechamento integral.
 - **Objetivo:** mapear todos os critérios de `spec.md`, executar regressão completa e registrar resultados e riscos residuais.
 - **Arquivos prováveis:** `specs/005-user-customer-link-management/spec.md`, `plan.md`, `tasks.md`; código/testes somente se defeito demonstrado e escopo autorizado.
 - **Critérios de aceite:** todos os CA de `spec.md` ligados a testes/evidências; suíte acordada passa com contagens reais; limitações de transporte/ambiente/concorrência permanecem explícitas; nenhuma tarefa ou iniciativa é concluída sem evidência.
@@ -74,6 +74,15 @@
 | CA-06 a CA-09a (CREATE/CHANGE/REMOVE/no-op) | T-01, T-02, T-04, T-05 |
 | CA-10 e CA-11 (justificativa/entrada confiável) | T-01, T-02, T-03, T-05 |
 | CA-12 a CA-14 (atomicidade/concorrência/append-only) | T-01, T-04, T-05 |
-| CA-15 e CA-16 (autorização de pedidos/contrato HTTP) | T-02, T-03, T-05 |
+| CA-15 e CA-16 (autorização de pedidos/contrato HTTP) | T-02, T-03, T-05, T-06 |
 
 Nota histórica: durante o planejamento inicial, ainda não havia testes ou tarefas de implementação executados. O status vigente e as evidências por tarefa estão registrados acima.
+
+## T-06 — Verificar CA-15: ciclo de vida do vínculo e autorização de pedidos
+
+- **Estado:** concluída em 2026-10-23; evidência direta do CA-15 adicionada sem alterações de produção, migrations ou contratos.
+- **Cenário:** em `PostgresContainerIntegrationTest.shouldApplyOrderAuthorizationAfterCustomerLinkAssignmentChangeAndRemoval`, um USER persistido percorre associação a Customer A, troca para Customer B e remoção por meio dos endpoints administrativos. Após cada transição, JWT do mesmo USER consulta pedidos por ID e por Customer. São conferidos os escopos autorizados e recusados, `customer_id` persistido, eventos e snapshots de auditoria, status dos dois pedidos e estoque do produto.
+- **Resultado observado:** após associação, pedidos de A são acessíveis e os de B retornam `404`; após troca, A retorna `404` e B é acessível; após remoção, consultas por ID e Customer para A e B retornam `403`, pois o USER não possui Customer. Foram persistidos exatamente `CREATE null→A`, `CHANGE A→B` e `REMOVE B→null`, todos pelo ator ADMIN persistido. Ambos pedidos permaneceram `CREATED` e o estoque, após a criação inicial dos dois pedidos, permaneceu em `8` durante as mudanças de vínculo.
+- **Validação executada:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" "-Dtest=PostgresContainerIntegrationTest" test` — `BUILD SUCCESS`, 15 testes, 0 falhas, 0 erros, 0 ignorados. Regressões de vínculo e pedidos (`UserCustomerLinkPostgresConsistencyIntegrationTest`, `UserCustomerLinkAuthorizationPostgresIntegrationTest`, `UserCustomerLinkServiceTest`, `AdminUserCustomerLinkControllerIntegrationTest`, `OrderControllerIntegrationTest`, `OrderConcurrencyIntegrationTest`, `OrderCancellationPostgresIntegrationTest`) — `BUILD SUCCESS`, 49 testes, 0 falhas, 0 erros, 0 ignorados. `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean test` — `BUILD SUCCESS`, 170 testes, 0 falhas, 0 erros, 0 ignorados.
+- **Limitações:** os endpoints e pedidos foram exercitados com `MockMvc` sobre a cadeia Spring Security/JWT e PostgreSQL/Testcontainers; não foi usado socket HTTP. A evidência valida requisições subsequentes após cada operação e não pretende comprovar cenários diferentes dos cobertos.
+- **Resultado da T-06:** CA-15 comprovado e lacuna registrada pela T-05 fechada; a iniciativa 005 pode ser considerada concluída. T-07 e outras iniciativas não foram iniciadas.

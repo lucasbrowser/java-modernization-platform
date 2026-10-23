@@ -1,6 +1,8 @@
 package com.github.lucasoliveira.platform;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import com.github.lucasoliveira.platform.auth.dto.LoginRequest;
 import com.github.lucasoliveira.platform.auth.dto.RegisterRequest;
@@ -40,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import org.springframework.http.MediaType;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -599,6 +602,140 @@ class PostgresContainerIntegrationTest {
         assertEquals(2, productRepository.findById(product.getId()).orElseThrow().getStock());
         assertEquals(2, orderRepository.findByCustomerId(owner.getId()).size());
         assertEquals(1, orderRepository.findByCustomerId(other.getId()).size());
+    }
+
+    @Test
+    void shouldApplyOrderAuthorizationAfterCustomerLinkAssignmentChangeAndRemoval() throws Exception {
+        String suffix = UUID.randomUUID().toString();
+        Customer customerA = saveCustomer("link-lifecycle-a-" + suffix);
+        Customer customerB = saveCustomer("link-lifecycle-b-" + suffix);
+        User admin = saveUser("link-lifecycle-admin-" + suffix, Role.ADMIN, null);
+        User target = saveUser("link-lifecycle-user-" + suffix, Role.USER, null);
+
+        Product product = new Product();
+        product.setSku("LL-" + suffix);
+        product.setName("Link lifecycle product");
+        product.setPrice(new BigDecimal("12.50"));
+        product.setStock(10);
+        product.setActive(true);
+        product = productRepository.saveAndFlush(product);
+
+        String adminToken = jwtService.generateToken(admin.getEmail(), "ADMIN");
+        String targetToken = jwtService.generateToken(target.getEmail(), "USER");
+        UUID orderAId = createOrderViaJwt(
+                customerA.getId(), product.getId(), adminToken, "link-lifecycle-a-" + suffix);
+        UUID orderBId = createOrderViaJwt(
+                customerB.getId(), product.getId(), adminToken, "link-lifecycle-b-" + suffix);
+
+        mockMvc.perform(put("/admin/users/{userId}/customer-link", target.getId())
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(customerLinkAssignmentBody(customerA.getId(), "Initial assignment")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(target.getId().toString()))
+                .andExpect(jsonPath("$.customerId").value(customerA.getId().toString()))
+                .andExpect(jsonPath("$.changed").value(true));
+        assertEquals(customerA.getId(), persistedCustomerId(target.getId()));
+        assertCustomerLinkAudit(target.getId(), admin.getId(), List.of(
+                new ExpectedLinkAudit("CREATE", null, customerA.getId())));
+
+        mockMvc.perform(get("/orders/{id}", orderAId).header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(orderAId.toString()))
+                .andExpect(jsonPath("$.customerId").value(customerA.getId().toString()));
+        mockMvc.perform(get("/orders/{id}", orderBId).header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/orders/customer/{customerId}", customerA.getId())
+                        .header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(orderAId.toString()));
+        mockMvc.perform(get("/orders/customer/{customerId}", customerB.getId())
+                        .header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(put("/admin/users/{userId}/customer-link", target.getId())
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(customerLinkAssignmentBody(customerB.getId(), "Change to B")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(target.getId().toString()))
+                .andExpect(jsonPath("$.customerId").value(customerB.getId().toString()))
+                .andExpect(jsonPath("$.changed").value(true));
+        assertEquals(customerB.getId(), persistedCustomerId(target.getId()));
+        assertCustomerLinkAudit(target.getId(), admin.getId(), List.of(
+                new ExpectedLinkAudit("CREATE", null, customerA.getId()),
+                new ExpectedLinkAudit("CHANGE", customerA.getId(), customerB.getId())));
+
+        mockMvc.perform(get("/orders/{id}", orderAId).header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/orders/{id}", orderBId).header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(orderBId.toString()))
+                .andExpect(jsonPath("$.customerId").value(customerB.getId().toString()));
+        mockMvc.perform(get("/orders/customer/{customerId}", customerA.getId())
+                        .header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/orders/customer/{customerId}", customerB.getId())
+                        .header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(orderBId.toString()));
+
+        mockMvc.perform(post("/admin/users/{userId}/customer-link/removal", target.getId())
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("justification", "Remove customer link"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(target.getId().toString()))
+                .andExpect(jsonPath("$.customerId").value(nullValue()))
+                .andExpect(jsonPath("$.changed").value(true));
+        assertNull(persistedCustomerId(target.getId()));
+        assertCustomerLinkAudit(target.getId(), admin.getId(), List.of(
+                new ExpectedLinkAudit("CREATE", null, customerA.getId()),
+                new ExpectedLinkAudit("CHANGE", customerA.getId(), customerB.getId()),
+                new ExpectedLinkAudit("REMOVE", customerB.getId(), null)));
+
+        mockMvc.perform(get("/orders/{id}", orderAId).header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/orders/{id}", orderBId).header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/orders/customer/{customerId}", customerA.getId())
+                        .header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/orders/customer/{customerId}", customerB.getId())
+                        .header("Authorization", "Bearer " + targetToken))
+                .andExpect(status().isForbidden());
+
+        assertEquals(OrderStatus.CREATED, orderRepository.findById(orderAId).orElseThrow().getStatus());
+        assertEquals(OrderStatus.CREATED, orderRepository.findById(orderBId).orElseThrow().getStatus());
+        assertEquals(8, productRepository.findById(product.getId()).orElseThrow().getStock());
+    }
+
+    private String customerLinkAssignmentBody(UUID customerId, String justification) throws Exception {
+        return objectMapper.writeValueAsString(Map.of("customerId", customerId, "justification", justification));
+    }
+
+    private UUID persistedCustomerId(UUID userId) {
+        return jdbcTemplate.queryForObject("SELECT customer_id FROM users WHERE id = ?", UUID.class, userId);
+    }
+
+    private void assertCustomerLinkAudit(UUID targetUserId, UUID actorUserId, List<ExpectedLinkAudit> expected) {
+        List<java.util.Map<String, Object>> events = jdbcTemplate.queryForList(
+                "SELECT actor_user_id, target_user_id, previous_customer_id, new_customer_id, action " +
+                        "FROM user_customer_link_audit WHERE target_user_id = ? ORDER BY occurred_at, id",
+                targetUserId);
+        assertEquals(expected.size(), events.size());
+        for (int i = 0; i < expected.size(); i++) {
+            java.util.Map<String, Object> event = events.get(i);
+            ExpectedLinkAudit transition = expected.get(i);
+            assertEquals(actorUserId, event.get("actor_user_id"));
+            assertEquals(targetUserId, event.get("target_user_id"));
+            assertEquals(transition.previousCustomerId(), event.get("previous_customer_id"));
+            assertEquals(transition.newCustomerId(), event.get("new_customer_id"));
+            assertEquals(transition.action(), event.get("action"));
+        }
+    }
+
+    private record ExpectedLinkAudit(String action, UUID previousCustomerId, UUID newCustomerId) {
     }
 
     @Test
