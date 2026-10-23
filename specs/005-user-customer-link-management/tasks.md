@@ -1,7 +1,7 @@
 # Tarefas: Administração de vínculo User–Customer
 
-**Estado da iniciativa:** proposta, aguardando aprovação.  
-**Regra SDD:** nenhuma tarefa abaixo está aprovada ou concluída; cada tarefa de implementação exige autorização explícita individual.
+**Estado da iniciativa:** não finalizada; T-01 a T-04 concluídas, T-05 revisada com pendência de evidência do CA-15.  
+**Regra SDD:** cada tarefa foi executada somente após autorização explícita individual. A T-05 não pôde declarar a iniciativa concluída porque seu escopo documental não permite fechar a lacuna de teste identificada.
 
 ## T-01 — Contrato e regras do serviço
 
@@ -13,7 +13,7 @@
 - **Testes previstos:** unidade para todas as transições, usuário/Customer inexistentes, alvo ADMIN, repetição sem auditoria, justificativa ausente/vazia/com espaços/sobre limite e cálculo da ação/snapshots.
 - **Implementação e evidências:** `UserCustomerLinkService` valida o ator persistido como ADMIN, bloqueia o alvo USER, aplica associação/troca/remoção, normaliza a justificativa, grava auditoria e retorna resultado com indicador de mudança. `UserRepository.findByIdForUpdate` usa `PESSIMISTIC_WRITE`. Repetição de associação e remoção sem vínculo não salvam usuário nem evento. `@Transactional` abrange alteração e `saveAndFlush` da auditoria.
 - **Validação executada:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" -Dtest=UserCustomerLinkServiceTest test` — `BUILD SUCCESS`; 13 testes, 0 falhas, 0 erros, 0 ignorados. A primeira execução no sandbox foi impedida por acesso negado ao JAR `spring-security-web-6.3.4`; a repetição com permissão elevada compilou e passou.
-- **Limites da evidência:** testes unitários não comprovam rollback transacional real nem aplicação/serialização efetiva do lock pelo PostgreSQL. Esses cenários permanecem para T-04. Não foram executados testes de controller/JWT nem a suíte completa.
+- **Limites da evidência da T-01:** testes unitários isoladamente não comprovavam rollback/lock PostgreSQL; esses cenários foram comprovados na T-04. No encerramento da T-05, a suíte completa também foi executada.
 - **Limites:** não criar controller, migration ou acesso ao histórico; não alterar registro/login, role ou autorização de pedidos; não ampliar handlers globais.
 
 ## T-02 — Expor API REST
@@ -54,12 +54,17 @@
 
 ## T-05 — Regressão final e fechamento
 
-- **Estado:** proposta; depende de T-01 a T-04 concluídas e aprovadas.
+- **Estado:** não concluída para fechamento integral; revisão e regressão executadas em 2026-10-23, com evidência pendente do CA-15. A iniciativa permanece não finalizada.
 - **Objetivo:** mapear todos os critérios de `spec.md`, executar regressão completa e registrar resultados e riscos residuais.
 - **Arquivos prováveis:** `specs/005-user-customer-link-management/spec.md`, `plan.md`, `tasks.md`; código/testes somente se defeito demonstrado e escopo autorizado.
 - **Critérios de aceite:** todos os CA de `spec.md` ligados a testes/evidências; suíte acordada passa com contagens reais; limitações de transporte/ambiente/concorrência permanecem explícitas; nenhuma tarefa ou iniciativa é concluída sem evidência.
 - **Testes previstos:** testes unitários de serviço, testes MVC/JWT, testes PostgreSQL/Testcontainers, regressão de auth/pedidos e `mvn clean test`.
 - **Limites:** não iniciar outra iniciativa nem corrigir limitações de 001–004 sem decisão e autorização próprias.
+- **Conferência documental:** `spec.md`, `plan.md` e `tasks.md` foram alinhados ao contrato implementado e aos resultados comprovados. Sem funcionalidade fora do escopo; não há endpoint de consulta de auditoria. T-01 a T-04 têm testes e resultados separados, sem somar execuções distintas como uma única rodada.
+- **Validação executada:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean test` — `BUILD SUCCESS`; 169 testes, 0 falhas, 0 erros, 0 ignorados. A execução completa incluiu os testes de serviço, MVC, PostgreSQL/Testcontainers, append-only, autorização e regressões existentes.
+- **Pendência que impede fechar a iniciativa:** CA-15 não tem evidência direta de que requisições de pedidos feitas após associação, troca e remoção via `AdminUserCustomerLinkController` observem o novo escopo persistido por JWT. `PostgresContainerIntegrationTest` exercita pedidos com vínculo já persistido, e os testes T-03 validam atualização/auditoria, mas não encadeiam as operações. A T-05 autorizou somente documentação, portanto o cenário não foi implementado nem alegado como validado.
+- **Limitações confirmadas:** endpoints foram testados com `MockMvc`, não por socket HTTP; JWT válido cujo subject não tem usuário persistido produz `500` genérico nos endpoints de vínculo; não existe endpoint de consulta da auditoria, conforme escopo aprovado. Nenhuma foi alterada na T-05.
+- **Resultado da T-05:** critérios de consistência documental e execução de regressão cumpridos; critério de fechamento integral não cumprido por causa da lacuna acima. Nenhuma outra tarefa/iniciativa foi iniciada.
 
 ## Matriz inicial de critérios e tarefas
 
@@ -71,4 +76,4 @@
 | CA-12 a CA-14 (atomicidade/concorrência/append-only) | T-01, T-04, T-05 |
 | CA-15 e CA-16 (autorização de pedidos/contrato HTTP) | T-02, T-03, T-05 |
 
-Nenhum teste foi executado para esta iniciativa durante o planejamento. Nenhuma tarefa de implementação está aprovada ou concluída.
+Nota histórica: durante o planejamento inicial, ainda não havia testes ou tarefas de implementação executados. O status vigente e as evidências por tarefa estão registrados acima.
