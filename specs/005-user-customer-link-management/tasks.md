@@ -42,12 +42,15 @@
 
 ## T-04 — Comprovar persistência, rollback e concorrência
 
-- **Estado:** proposta; depende de T-01 a T-03 concluídas e aprovadas.
+- **Estado:** concluída em 2026-10-23 para atomicidade, lock PostgreSQL, transições concorrentes e operações sem mudança; não implica conclusão da iniciativa.
 - **Objetivo:** comprovar no PostgreSQL que vínculo e auditoria são atômicos e que alterações simultâneas no mesmo alvo não geram snapshots incoerentes.
 - **Arquivos/componentes prováveis:** `UserRepository` com método de lock se aprovado pela implementação; novo `UserCustomerLinkPostgresIntegrationTest`; Testcontainers existente; trigger/falha de teste isolada sem artefato de produção.
 - **Critérios de aceite:** teste PostgreSQL observa lock/serialização da linha de User; falha real ao gravar auditoria reverte `customer_id`; sequência de eventos corresponde à cadeia de valores anterior/novo persistidos; todos os invariantes de FK e append-only permanecem válidos.
 - **Testes previstos:** PostgreSQL/Testcontainers com conexões/transações independentes, barreira concorrente e estado final consultado após commit/rollback; nenhuma alegação baseada apenas em mocks.
 - **Limites:** não alterar migration aplicada sem autorização específica; não adicionar endpoint de histórico; não executar testes de concorrência de cancelamento da iniciativa 004 nesta tarefa.
+- **Implementação e evidências:** criada `UserCustomerLinkPostgresConsistencyIntegrationTest`; não houve alteração de produção ou migration. No teste de rollback, um trigger PostgreSQL temporário e restrito ao `target_user_id` do fixture lança exceção em `BEFORE INSERT` de `user_customer_link_audit`. Ele é criado antes da chamada e removido em `finally`; após o rollback, uma nova transação confirma o Customer original e zero eventos para o alvo. No teste concorrente, duas transações em threads/conexões independentes partem de uma barreira comum e solicitam Customers distintos para o mesmo USER. `pg_stat_activity` mostra uma sessão aguardando evento de lock e `pg_blocking_pids` identifica o backend bloqueador; o teste usa os application names observados para derivar qual alteração ocorreu primeiro. O estado final corresponde à segunda alteração e os snapshots formam a cadeia Customer inicial → primeiro Customer → segundo Customer, com dois eventos `CHANGE`. Nos no-ops, repetir o Customer atual e remover vínculo inexistente preservam estado e inserem zero auditorias para cada alvo.
+- **Validação executada:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" "-Dtest=UserCustomerLinkPostgresConsistencyIntegrationTest,UserCustomerLinkAuthorizationPostgresIntegrationTest,UserCustomerLinkServiceTest" test` — `BUILD SUCCESS`; 21 testes, 0 falhas, 0 erros, 0 ignorados (3 T-04 PostgreSQL, 5 T-03 PostgreSQL e 13 unitários T-01).
+- **Limites da evidência:** concorrência exercitada no PostgreSQL por conexões de transações independentes, coordenadas por barreira e confirmadas pelo estado de lock observado pelo banco. As chamadas ao serviço são diretas dentro de transações Spring reais; os endpoints HTTP/JWT seguem cobertos separadamente pela T-03. O trigger de falha é temporário e criado apenas durante o teste.
 
 ## T-05 — Regressão final e fechamento
 
