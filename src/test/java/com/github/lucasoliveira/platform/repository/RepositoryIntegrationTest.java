@@ -46,6 +46,7 @@ class RepositoryIntegrationTest {
     @ServiceConnection
     static PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>("postgres:16-alpine")
+                    .withInitScript("provision-test-roles.sql")
                     .withDatabaseName("test")
                     .withUsername("test")
                     .withPassword("test");

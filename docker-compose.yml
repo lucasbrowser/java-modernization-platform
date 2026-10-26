@@ -5,14 +5,18 @@ services:
     container_name: modernization-postgres
     environment:
       POSTGRES_DB: order_platform
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${DB_PROVISIONER_USERNAME:?Configure DB_PROVISIONER_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PROVISIONER_PASSWORD:?Configure DB_PROVISIONER_PASSWORD}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Configure MIGRATION_DB_PASSWORD}
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?Configure RUNTIME_DB_PASSWORD}
+      BOOTSTRAP_DB_PASSWORD: ${BOOTSTRAP_DB_PASSWORD:?Configure BOOTSTRAP_DB_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/provision-postgres-roles.sql:/docker-entrypoint-initdb.d/10-provision-app-roles.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d order_platform"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d order_platform"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -24,8 +28,8 @@ services:
     container_name: modernization-api
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/order_platform
-      DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_USERNAME: ${RUNTIME_DB_USERNAME:?Configure RUNTIME_DB_USERNAME}
+      DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?Configure RUNTIME_DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:?Configure JWT_SECRET no arquivo .env}
       PROMETHEUS_USERNAME: ${PROMETHEUS_USERNAME:-prometheus}
       PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?Configure PROMETHEUS_PASSWORD no arquivo .env}
@@ -35,10 +39,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - app
       - monitoring
     restart: unless-stopped
+
+  migrate:
+    build: .
+    container_name: modernization-migrate
+    command: ["--migrate-only"]
+    environment:
+      MIGRATION_DB_URL: jdbc:postgresql://postgres:5432/order_platform
+      MIGRATION_DB_USERNAME: ${MIGRATION_DB_USERNAME:?Configure MIGRATION_DB_USERNAME}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Configure MIGRATION_DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+    restart: "no"
 
   prometheus:
     image: prom/prometheus:v3.5.0

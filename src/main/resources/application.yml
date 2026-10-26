@@ -3,8 +3,8 @@ spring:
     name: java-modernization-platform
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/order_platform}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
@@ -13,7 +13,7 @@ spring:
       hibernate:
         format_sql: true
   flyway:
-    enabled: true
+    enabled: false
     locations: classpath:db/migration
 
 server:
