@@ -61,6 +61,22 @@ services:
       - app
     restart: "no"
 
+  bootstrap:
+    build: .
+    profiles: ["bootstrap"]
+    command: ["--bootstrap-admin"]
+    stdin_open: true
+    tty: true
+    environment:
+      BOOTSTRAP_DB_URL: jdbc:postgresql://postgres:5432/order_platform
+      BOOTSTRAP_DB_PASSWORD: ${BOOTSTRAP_DB_PASSWORD:?Configure BOOTSTRAP_DB_PASSWORD}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - app
+    restart: "no"
+
   prometheus:
     image: prom/prometheus:v3.5.0
     container_name: modernization-prometheus

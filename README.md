@@ -112,6 +112,16 @@ A aplicação será posteriormente preparada para execução em ambiente AWS uti
 
 ## Funcionalidades atuais
 
+### Primeiro administrador
+
+O startup da API não cria uma conta administrativa. Depois que o PostgreSQL e as migrations estiverem prontos, execute o bootstrap explicitamente em um terminal interativo:
+
+```powershell
+docker compose --profile bootstrap run --rm bootstrap
+```
+
+O comando solicita nome e e-mail e lê a senha sem eco. Configure `BOOTSTRAP_DB_PASSWORD` no ambiente protegido usado pelo Compose; essa credencial é consumida somente pelo comando de bootstrap. O processo API recebe apenas as credenciais `app_runtime`. Códigos de saída: `0` criado ou já existente, `2` entrada/configuração inválida, `3` conflito de conta e `1` falha operacional.
+
 ### Autenticação
 
 * Login utilizando JWT
