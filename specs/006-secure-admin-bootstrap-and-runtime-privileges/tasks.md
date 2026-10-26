@@ -1,7 +1,7 @@
 # Tarefas — Iniciativa 006
 
-**Status da iniciativa:** aguardando aprovação do plano revisado  
-**Autorização vigente:** apenas correção documental. T-01 (análise e fechamento do contrato) foi concluída documentalmente; nenhuma implementação foi iniciada. T-02, T-03 e demais tarefas dependem de autorização explícita.
+**Status da iniciativa:** em andamento; T-03 concluída com evidências em 2026-10-26.  
+**Autorização vigente:** T-03 foi autorizada e validada nesta execução. T-04, T-05 e T-06 permanecem pendentes de autorização explícita. T-01 segue concluída documentalmente.
 
 As decisões D-01 a D-05 e DP-01 a DP-06 estão aprovadas. Pendências técnicas e de validação listadas nas tarefas não reabrem esses contratos.
 O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece fora do escopo; não deve ser incluído em nenhuma tarefa desta iniciativa.
@@ -21,7 +21,7 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 ## T-02 — Implementar o comando de bootstrap explícito e idempotente
 
-**Estado:** pendente de autorização.  
+**Estado:** implementação existente; validação integral e encerramento formal ainda pendentes.  
 **Objetivo:** permitir provisionar o primeiro ADMIN com segurança operacional, sem endpoint HTTP ou seed de startup.  
 **Decisões relacionadas:** D-01, D-02, D-03, DP-01, DP-02 e DP-05.  
 **Escopo:** comando one-shot; senha digitada em terminal interativo, sem eco via stdin; role bootstrap exclusiva; validação/encoder existentes; transação, concorrência e respostas operacionais definidas. Nenhum secret bootstrap na API normal. Execução automatizada do bootstrap fica fora até uma decisão operacional específica.
@@ -34,16 +34,26 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 ## T-03 — Separar roles e validar migrations/privilégios PostgreSQL
 
-**Estado:** pendente de autorização.  
+**Estado:** concluída em 2026-10-26.  
 **Objetivo:** garantir migrations fora do processo normal da API e comprovar privilégios mínimos das identidades no PostgreSQL.  
 **Decisões relacionadas:** D-04, DP-03 e DP-05.  
-**Escopo:** separar identidades de provisionamento, migrator, runtime e bootstrap; executar Flyway em job/processo one-shot; determinar grants mínimos; analisar V1–V4, `pgcrypto`, funções, triggers, tabelas, constraints e ownership; proteger `users` no PostgreSQL para permitir cadastro `USER` e impedir criação/promoção de `ADMIN`; manter os fluxos normais de vínculo Customer e auditoria; provar privilégios efetivos com conexões distintas em PostgreSQL 16 descartável e adaptar Testcontainers. Configurar a separação das credenciais runtime e migration. A compatibilidade com bancos existentes e sua transição pertencem à T-05, não são comprovadas por T-03. Não editar migrations aplicadas.
+**Escopo:** separar identidades de provisionamento, migrator, runtime e bootstrap; executar Flyway em job/processo one-shot; determinar grants mínimos; analisar V1–V5, `pgcrypto`, funções, triggers, tabelas, constraints e ownership; proteger `users` no PostgreSQL para permitir cadastro `USER` e impedir criação/promoção de `ADMIN`; manter os fluxos normais de vínculo Customer e auditoria; provar privilégios efetivos com conexões distintas em PostgreSQL 16 descartável e adaptar Testcontainers. Configurar a separação das credenciais runtime e migration. A compatibilidade com bancos existentes e sua transição pertencem à T-05, não são comprovadas por T-03. Não editar migrations aplicadas.
 
-**Critérios de conclusão:** V1–V4 funcionam com migrator não superusuário em PostgreSQL 16 descartável, com pré-requisitos de `pgcrypto` explícitos; API inicia com runtime e `ddl-auto: validate`, sem configuração bootstrap obrigatória, e não recebe secrets de migration/bootstrap; runtime consegue registrar USER e executar SQL dos fluxos suportados, inclusive Customer-link e INSERT de auditoria, mas PostgreSQL rejeita INSERT de ADMIN, promoção de USER para ADMIN e tentativa runtime de alterar/desativar a proteção; runtime não consegue DDL/CREATE ROLE/DB/DELETE/TRUNCATE nem modificar/remover auditoria; bootstrap role é exclusiva e não alcançável pela API; falhas do job são identificáveis e bloqueiam o rollout sem fallback a superuser. Esta tarefa não declara compatibilidade nem executa transição de bancos existentes.
+**Critérios de conclusão:** V1–V5 funcionam com migrator não superusuário em PostgreSQL 16 descartável, com pré-requisitos de `pgcrypto` explícitos; API inicia com runtime e `ddl-auto: validate`, sem configuração bootstrap obrigatória, e não recebe secrets de migration/bootstrap; runtime consegue registrar USER e executar os fluxos suportados, inclusive Customer-link e INSERT de auditoria, mas PostgreSQL rejeita INSERT de ADMIN, promoção de USER para ADMIN e tentativa runtime de alterar/desativar a proteção; runtime não consegue instalar extensões, executar DDL/CREATE ROLE/DB/DELETE/TRUNCATE nem modificar/remover auditoria; bootstrap role é exclusiva e não alcançável pela API; falhas do job são identificáveis e bloqueiam o rollout sem fallback a superuser. Esta tarefa não declara compatibilidade nem executa transição de bancos existentes.
 
 **Testes/evidências esperadas:** PostgreSQL 16 Testcontainers com setup, migrator, runtime e bootstrap em identidades distintas; banco descartável vazio; migração por Flyway role não superusuária e prova dos privilégios/pré-requisitos de `pgcrypto`; API com runtime e `ddl-auto: validate` sem variáveis bootstrap; comprovar INSERT de USER permitido, INSERT de ADMIN e promoção para ADMIN negados, proteção não alterável/desativável pelo runtime, operações Customer-link/auditoria permitidas e mutação/remoção de auditoria negada; provar privilégios DDL/roles e falhas do job. Sem fixture de banco existente nesta tarefa. Adaptar testes com `@ServiceConnection` sem reduzir cobertura.
 
 **Dependências:** T-01. Seleção técnica de executor e grants ocorre após prova. T-02 integrado depende de T-03 concluída.
+
+**Evidências registradas:**
+- `PostgresRolePrivilegesIntegrationTest` aplicou V1–V5 em PostgreSQL 16 descartável com `app_migrator`; as cinco versões foram confirmadas e o papel não tem `SUPERUSER`, `CREATEDB` ou `CREATEROLE`. `pgcrypto` foi provisionada por `provisioner` antes do Flyway e permaneceu pertencendo a essa identidade.
+- Conexões reais como `app_runtime` confirmaram cadastro USER e negaram INSERT/PROMOÇÃO ADMIN, `CREATE EXTENSION hstore`, DDL, CREATE ROLE/DB, alteração/desativação do trigger, mudança de `session_replication_role`, acesso às roles privilegiadas, DELETE e TRUNCATE nas tabelas protegidas e mutação/remoção de auditoria.
+- Contexto Spring com runtime, Flyway desabilitado e `ddl-auto: validate` iniciou sem criar ADMIN. O fluxo de cadastro via `AuthService` e atribuição/remoção via `UserCustomerLinkService` gravou USER e os eventos `CREATE`/`REMOVE` em auditoria usando as permissões runtime. A conexão bootstrap foi usada separadamente para inserir ADMIN.
+- Tentativa de Flyway como runtime falhou. Em Compose, o job válido aplicou V1–V5 e terminou com código `0`; o job com senha descartável inválida terminou com código `1`, e um serviço probe dependente não iniciou (`service_completed_successfully`).
+- Smoke test operacional usou projeto Compose isolado, arquivo de configuração e credenciais descartáveis, portas alternativas e volume novo rotulado para esse projeto. API iniciou com `DB_USERNAME=app_runtime`; inspeção do ambiente efetivo da API não encontrou variáveis de bootstrap ou migration. Cadastro HTTP foi persistido como USER e `--profile bootstrap run --rm bootstrap` criou ADMIN. O volume e containers de teste foram removidos; volumes preexistentes não foram alterados.
+- Verificações Maven: `mvn clean test` — 180 testes, 0 falhas, 0 erros, 0 ignorados; `mvn -DskipTests package` — BUILD SUCCESS. O `docker compose config --services` também foi validado. Nenhuma migration existente foi alterada.
+
+**Limites:** não foi executada transição de banco existente (T-05), nem validação de imagem nonroot (T-04) ou encerramento integrado T-06. Esta conclusão vale somente para os critérios da T-03 em banco descartável e configuração Compose validada; não comprova compatibilidade de bancos existentes.
 
 ## T-04 — Executar a imagem como usuário não privilegiado
 

@@ -8,9 +8,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.UUID;
+import java.util.List;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.jdbc.core.JdbcTemplate;
+import com.github.lucasoliveira.platform.auth.dto.RegisterRequest;
+import com.github.lucasoliveira.platform.auth.entity.User;
+import com.github.lucasoliveira.platform.auth.repository.UserRepository;
+import com.github.lucasoliveira.platform.auth.service.AuthService;
+import com.github.lucasoliveira.platform.auth.service.UserCustomerLinkService;
+import com.github.lucasoliveira.platform.customer.entity.Customer;
+import com.github.lucasoliveira.platform.customer.repository.CustomerRepository;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
@@ -57,15 +70,21 @@ class PostgresRolePrivilegesIntegrationTest {
             assertEquals(MIGRATOR, scalarString(statement, "SELECT session_user"));
             assertTrue(scalarBoolean(statement,
                     "SELECT rolsuper FROM pg_roles WHERE rolname = 'provisioner'"));
+            assertEquals(5, scalarInt(statement, "SELECT count(*)::int FROM flyway_schema_history WHERE success"));
+            assertEquals(1, scalarInt(statement, "SELECT min(version)::int FROM flyway_schema_history WHERE success"));
             assertEquals(5, scalarInt(statement, "SELECT max(version)::int FROM flyway_schema_history WHERE success"));
             assertEquals(1, scalarInt(statement,
                     "SELECT count(*)::int FROM pg_extension WHERE extname = 'pgcrypto'"));
+            assertEquals("provisioner", scalarString(statement,
+                    "SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname = 'pgcrypto'"));
             assertFalse(scalarBoolean(statement, "SELECT rolsuper OR rolcreatedb OR rolcreaterole "
                     + "FROM pg_roles WHERE rolname = current_user"));
             assertEquals(MIGRATOR, scalarString(statement,
                     "SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE proname = 'prevent_runtime_admin_user_write'"));
             assertEquals(MIGRATOR, scalarString(statement,
                     "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE relname = 'users'"));
+            assertEquals(MIGRATOR, scalarString(statement,
+                    "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE relname = 'user_customer_link_audit'"));
         }
     }
 
@@ -117,6 +136,17 @@ class PostgresRolePrivilegesIntegrationTest {
                     + "WHERE id = '" + auditId + "'"));
             assertThrows(SQLException.class, () -> statement.execute("DELETE FROM users WHERE id = '" + userId + "'"));
             assertThrows(SQLException.class, () -> statement.execute("TRUNCATE users"));
+            for (String table : List.of("customers", "products", "orders", "order_items")) {
+                assertThrows(SQLException.class, () -> statement.execute("DELETE FROM " + table + " WHERE false"));
+                assertThrows(SQLException.class, () -> statement.execute("TRUNCATE " + table));
+                assertFalse(scalarBoolean(statement,
+                        "SELECT has_table_privilege(current_user, 'public." + table + "', 'DELETE')"));
+            }
+            assertThrows(SQLException.class, () -> statement.execute("TRUNCATE user_customer_link_audit"));
+            assertFalse(scalarBoolean(statement,
+                    "SELECT has_database_privilege(current_user, current_database(), 'CREATE')"));
+            assertFalse(scalarBoolean(statement,
+                    "SELECT has_schema_privilege(current_user, 'public', 'CREATE')"));
             assertEquals(customerId, scalarString(statement,
                     "SELECT customer_id::text FROM users WHERE id = '" + userId + "'"));
             assertEquals(1, scalarInt(statement,
@@ -127,6 +157,9 @@ class PostgresRolePrivilegesIntegrationTest {
     @Test
     void runtimeCannotChangeSchemaRolesProtectionOrCreateDatabase() throws Exception {
         try (Connection runtime = connection(RUNTIME, RUNTIME_PASSWORD); Statement statement = runtime.createStatement()) {
+            assertTrue(scalarBoolean(statement,
+                    "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'hstore')"));
+            assertThrows(SQLException.class, () -> statement.execute("CREATE EXTENSION hstore"));
             assertThrows(SQLException.class, () -> statement.execute("CREATE TABLE public.runtime_table (id int)"));
             assertThrows(SQLException.class, () -> statement.execute("ALTER TABLE users DISABLE TRIGGER "
                     + "trg_prevent_runtime_admin_user_write"));
@@ -146,10 +179,12 @@ class PostgresRolePrivilegesIntegrationTest {
             assertFalse(scalarBoolean(statement, "SELECT rolsuper OR rolcreatedb OR rolcreaterole "
                     + "FROM pg_roles WHERE rolname = current_user"));
         }
+        assertThrows(org.flywaydb.core.api.FlywayException.class,
+                () -> DatabaseMigrationJob.migrate(postgres.getJdbcUrl(), RUNTIME, RUNTIME_PASSWORD));
     }
 
     @Test
-    void runtimeApiContextIsBlockedOnlyByTheAuthorizedStartupAdminSeed() {
+    void runtimeApiStartsWithoutPrivilegedSeed() throws Exception {
         SpringApplication application = new SpringApplication(JavaModernizationPlatformApplication.class);
         application.setDefaultProperties(java.util.Map.ofEntries(
                 java.util.Map.entry("spring.main.banner-mode", "off"),
@@ -166,15 +201,56 @@ class PostgresRolePrivilegesIntegrationTest {
                 java.util.Map.entry("PROMETHEUS_PASSWORD", "test-metrics-password"),
                 java.util.Map.entry("logging.level.root", "ERROR")));
 
-        RuntimeException startupFailure = assertThrows(RuntimeException.class,
-                () -> application.run("--server.port=0", "--management.server.port=0"));
-        Throwable cause = startupFailure;
-        while (cause.getCause() != null) {
-            cause = cause.getCause();
+        int adminsBeforeStartup;
+        try (Connection runtime = connection(RUNTIME, RUNTIME_PASSWORD);
+                Statement statement = runtime.createStatement()) {
+            adminsBeforeStartup = scalarInt(statement, "SELECT count(*)::int FROM users WHERE role = 'ADMIN'");
         }
-        assertTrue(cause.getMessage().contains("only the bootstrap role may create ADMIN"),
-                "Runtime API startup failed for another reason: " + cause.getClass().getSimpleName()
-                        + ": " + cause.getMessage());
+        try (var context = application.run("--server.port=0", "--management.server.port=0")) {
+            try (Connection runtime = connection(RUNTIME, RUNTIME_PASSWORD); Statement statement = runtime.createStatement()) {
+                assertEquals(adminsBeforeStartup,
+                        scalarInt(statement, "SELECT count(*)::int FROM users WHERE role = 'ADMIN'"));
+            }
+
+            String suffix = UUID.randomUUID().toString();
+            AuthService authService = context.getBean(AuthService.class);
+            authService.register(new RegisterRequest("Runtime User", "runtime-user-" + suffix + "@example.test",
+                    "runtime-password"));
+            User user = context.getBean(UserRepository.class)
+                    .findByEmailIgnoreCase("runtime-user-" + suffix + "@example.test").orElseThrow();
+            assertEquals(com.github.lucasoliveira.platform.auth.entity.Role.USER, user.getRole());
+
+            String adminEmail = "bootstrap-admin-" + suffix + "@example.test";
+            UUID adminId = UUID.randomUUID();
+            try (Connection bootstrap = connection(BOOTSTRAP, BOOTSTRAP_PASSWORD);
+                    PreparedStatement insert = bootstrap.prepareStatement(
+                            "INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, 'ADMIN')")) {
+                insert.setObject(1, adminId);
+                insert.setString(2, "Bootstrap Admin");
+                insert.setString(3, adminEmail);
+                insert.setString(4, "test-hash");
+                insert.executeUpdate();
+            }
+
+            Customer customer = new Customer();
+            customer.setName("Runtime Customer");
+            customer.setEmail("runtime-customer-" + suffix + "@example.test");
+            customer.setDocument("doc-" + suffix.substring(0, 12));
+            customer = context.getBean(CustomerRepository.class).saveAndFlush(customer);
+            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                    adminEmail, "ignored", List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
+            try {
+                UserCustomerLinkService linkService = context.getBean(UserCustomerLinkService.class);
+                assertTrue(linkService.assignCustomer(user.getId(), customer.getId(), "link customer").changed());
+                assertTrue(linkService.removeCustomer(user.getId(), "remove customer").changed());
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+            JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
+            assertEquals(List.of("CREATE", "REMOVE"), jdbc.queryForList(
+                    "SELECT action FROM user_customer_link_audit WHERE target_user_id = ? ORDER BY occurred_at, id",
+                    String.class, user.getId()));
+        }
     }
 
     private static Connection connection(String user, String password) throws SQLException {
