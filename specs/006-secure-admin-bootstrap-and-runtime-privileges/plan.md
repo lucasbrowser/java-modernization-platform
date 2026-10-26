@@ -6,9 +6,9 @@
 
 ## 1. Decisões e direção técnica
 
-D-01 a D-05 e DP-01 a DP-06 estão aprovadas e incorporadas à [especificação](spec.md). A análise documental da T-01 foi concluída; isso não valida implementação nem concede autorização para T-02 ou T-03.
+D-01 a D-05 e DP-01 a DP-06 estão aprovadas e incorporadas à [especificação](spec.md). A análise documental da T-01 foi concluída; isso não valida implementação nem concede autorização para tarefas de implementação.
 
-Direções obrigatórias: comando one-shot interativo sem eco para bootstrap; outro ADMIN existente implica recusa sem mutação; role bootstrap exclusiva; Flyway em job/processo one-shot separado da API; transição de bancos existentes versionada e forward-only; runtime sem credenciais privilegiadas; container com UID/GID numéricos estáveis não root. Não criar endpoint HTTP de bootstrap. A política JWT quando ADMIN persistido for rebaixado permanece fora do escopo.
+Direções obrigatórias: comando one-shot interativo sem eco para bootstrap; outro ADMIN existente implica recusa sem mutação; role bootstrap exclusiva; Flyway em job/processo one-shot separado da API; transição de bancos existentes versionada e forward-only sob responsabilidade da T-05; runtime sem credenciais privilegiadas; container com UID/GID numéricos estáveis não root. Não criar endpoint HTTP de bootstrap. A política JWT quando ADMIN persistido for rebaixado permanece fora do escopo.
 
 ## 2. Caracterização atual e impactos
 
@@ -41,7 +41,7 @@ Provisionar separadamente: identidade administrativa do banco; migrator não sup
 
 Investigar permissões reais de `pgcrypto` em PostgreSQL 16. Se instalar extensão exigir direito que o migrator não deve ter, pré-provisionar extensão por identidade administrativa, sem dar superuser ao migrator. Banco novo: provisionar papéis e pré-requisitos, migrar, verificar grants, iniciar API. Falha do job bloqueia início/rollout da nova versão; não apagar banco nem volume.
 
-### 3.3 Transição de bancos existentes
+### 3.3 Transição de bancos existentes (T-05)
 
 Antes da mudança, inventariar versão do schema/Flyway, owner de schema/objetos, extensões, usuários/roles, grants, dados e serviços que usam credenciais atuais. Planejar janela/ordem de rollout e validar backup restaurável. Executar procedimento versionado, idempotente e forward-only para criar roles, transferir ownership quando necessário e aplicar grants. Conferir estado de migration, consultas de integridade e fluxos da API com runtime role. Não reescrever migrations antigas nem presumir rollback automático.
 
@@ -68,13 +68,13 @@ Preservar a numeração T-01 a T-06. Ordem recomendada de execução: **T-01 →
 | Ordem | Tarefa | Dependências técnicas | Resultado esperado |
 |---|---|---|---|
 | 1 | T-01 — Caracterizar estado e fechar contrato técnico | Concluída no plano documental; sem implementação | Registrar comportamento atual, contrato do comando, fluxo de credenciais, executor Flyway possível, grants e critérios de transição; sem implementação. |
-| 2 | T-03 — Separar roles e migrations; transição DB | T-01 | Provar migration/runtime/bootstrap roles, pgcrypto, banco novo e upgrade forward-only; adaptar infraestrutura de Testcontainers sem enfraquecer testes. |
+| 2 | T-03 — Separar roles e validar migrations/privilégios | T-01 | Provar roles de provisionamento/migration/runtime/bootstrap, `pgcrypto`, migrations V1–V4 em PostgreSQL descartável e operações permitidas/negadas; adaptar Testcontainers sem enfraquecer testes. Não validar transição de banco existente. |
 | 3 | T-02 — Bootstrap explícito idempotente | T-01 e **T-03 antes da integração** para role/credenciais; desenvolvimento isolado de domínio pode ocorrer após aprovação, sem conceder integração antecipada | Implementar comando, transação/concorrência, stdin sem eco e testes. A API nunca recebe bootstrap credential. |
 | 4 | T-04 — Imagem nonroot | T-01 para UID/GID e requisitos de filesystem | Executar imagem real e validar permissões, JVM, Postgres, temporários e health. |
-| 5 | T-05 — Configuração e documentação operacional | T-02, T-03, T-04 | Atualizar Compose/config/docs em conjunto: ordem dos jobs, variáveis por serviço, bootstrap, segredos e recuperação. |
+| 5 | T-05 — Transição segura de bancos existentes e documentação operacional | T-02, T-03, T-04 | Validar estados iniciais suportados em fixture/clone, preservar dados e histórico Flyway, aplicar transição forward-only e documentar pré-condições, procedimento, verificações e recuperação; completar a documentação operacional sem expor segredos. |
 | 6 | T-06 — Regressão e verificação integrada | T-02 a T-05 | Executar matriz CA, regressões, PostgreSQL/Testcontainers, bootstrap e imagem; registrar evidência real. |
 
-T-03 precede a integração do comando porque a credencial exclusiva de bootstrap e a separação runtime/migration precisam existir antes de injetar qualquer segredo no processo one-shot. Essa ordem não autoriza nenhuma tarefa.
+T-03 precede a integração do comando porque a credencial exclusiva de bootstrap e a separação runtime/migration precisam existir antes de injetar qualquer segredo no processo one-shot. T-05 depende dos mecanismos de privilégio de T-03, da integração de T-02 e da configuração de container de T-04. A transição de bancos existentes pertence exclusivamente a T-05. Essa ordem não autoriza nenhuma tarefa.
 
 ## 5. Arquivos provavelmente afetados (não autorização)
 
@@ -87,4 +87,4 @@ Não consultar `.env` local. Não criar scripts ou executar alterações nesta e
 
 ## 6. Evidência de conclusão
 
-T-06 deve mapear CA-01–CA-14 a verificações concretas. Registrar papéis e grants reais, credenciais disponíveis a cada processo, resultado das tentativas proibidas, coordenação da concorrência, estado de dados antes/depois da transição e UID/GID observado na imagem. A aprovação das decisões não equivale a validação técnica.
+T-06 deve mapear CA-01–CA-14 a verificações concretas. Registrar papéis e grants reais, credenciais disponíveis a cada processo, resultado das tentativas proibidas, coordenação da concorrência, evidências da transição de bancos existentes concluída em T-05 e UID/GID observado na imagem. A aprovação das decisões não equivale a validação técnica.

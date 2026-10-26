@@ -90,9 +90,9 @@ Provisionamento do banco, migration e runtime usam identidades separadas. API n�
 
 Os grants são derivados do SQL e dos fluxos atuais. Runtime deve permitir o cadastro normal de usuários `USER`, inclusive escrita necessária em `users`, mas o PostgreSQL deve negar à role runtime a criação de usuários `ADMIN` e a promoção de usuários existentes para `ADMIN`. Runtime também não pode alterar nem desabilitar os mecanismos que impõem essa restrição. As operações normais de vínculo Customer e INSERT de auditoria permanecem permitidas; runtime não pode atualizar/remover auditoria. Não conceder DDL, `DELETE` ou `TRUNCATE` por conveniência. O mecanismo de proteção permanece aberto para investigação entre trigger, RLS, função controlada ou equivalente e deve ser provado com PostgreSQL/Testcontainers.
 
-### RF-07 — Migrations
+### RF-07 — Migrations e transição de ambientes
 
-Flyway executa em job/processo one-shot separado da API normal. A implementação deve investigar a opção compatível com Spring Boot/Flyway e provar executor, origem de credenciais, privilégios, ordem, falhas, repetição e recuperação. Banco vazio e banco existente devem ser suportados sem reescrever migrations aplicadas nem perda de dados. A migration V1 existente usa `pgcrypto`; sua instalação e privilégios serão validados tecnicamente.
+Flyway executa em job/processo one-shot separado da API normal. T-03 investiga a opção compatível com Spring Boot/Flyway e prova executor, origem de credenciais e privilégios para V1–V4 em PostgreSQL 16 descartável, incluindo a instalação ou o pré-provisionamento de `pgcrypto`. Essa validação não comprova compatibilidade com bancos existentes. T-05 planeja e valida a transição forward-only de bancos existentes, preservando dados e histórico Flyway, sem reescrever migrations aplicadas; inclui pré-condições, verificações e recuperação operacional documentada.
 
 ### RF-08 — Configuração por ambiente
 
@@ -117,7 +117,7 @@ Segredos não são versionados nem registrados. Procedimentos de bootstrap, migr
 - **CA-06:** Flyway aplica migrations em PostgreSQL limpo com identidade não superusuária; extensão `pgcrypto` funciona pela estratégia aprovada.
 - **CA-07:** API inicia sem configuração de bootstrap, com papel runtime e `ddl-auto: validate`; operações suportadas, inclusive registro normal de USER, passam com os grants definidos.
 - **CA-08:** PostgreSQL permite à role runtime inserir usuários USER e realizar vínculo Customer/auditoria, mas nega criar ADMIN ou promover USER a ADMIN; runtime não consegue alterar/desabilitar essa proteção, executar DDL, criar banco/papéis, apagar/truncar dados ou alterar/remover auditoria.
-- **CA-09:** bancos novos e existentes podem adotar papéis e ownership novos sem perda de dados e sem editar migrations históricas.
+- **CA-09:** T-03 comprova roles, migrations e privilégios em banco descartável; T-05 comprova a transição segura de bancos existentes, preservando dados, integridade referencial, ownership aplicável e estado/histórico Flyway, sem editar migrations históricas.
 - **CA-10:** configurações reutilizáveis falham de forma clara se faltarem segredos, sem usar senha fraca nem expor valores no erro.
 - **CA-11:** imagem final executa como UID não zero e acessa somente arquivos/diretórios necessários; comprovação ocorre em execução da imagem.
 - **CA-12:** README e `.env.example` documentam bootstrap, papéis, migrations, variáveis e gestão externa de segredos sem segredos reais.
@@ -136,7 +136,7 @@ Segredos não são versionados nem registrados. Procedimentos de bootstrap, migr
 | CA-06 | Flyway não superusuário em banco vazio, inclusive pgcrypto | D-04, DP-03 | Compatível, sujeito a prova técnica | Job one-shot aprovado; executor e privilégio de extensão a comprovar | Testcontainers PostgreSQL 16 com role de migration |
 | CA-07 | API sem configuração bootstrap, runtime+validate, fluxos normais incluindo registro USER | D-01, D-04 | Compatível | Inclui ausência de bootstrap config e registro USER | Subir API e exercitar registro/negócio com role runtime |
 | CA-08 | Runtime registra USER e opera vínculo/auditoria, mas não cria/promove ADMIN nem desativa proteção | D-04, DP-05 | Compatível; requer prova PostgreSQL | Substitui proibição absoluta de INSERT por escrita limitada pelo banco | Testcontainers: USER permitido; ADMIN insert/update e alteração da proteção negados |
-| CA-09 | Migração segura de bancos existentes | D-04, DP-04 | Compatível | Transição versionada, forward-only e com recuperação aprovada | Clone/fixture com dados antes/depois e runbook exercitado |
+| CA-09 | Migração segura de bancos existentes | D-04, DP-04 | Compatível | Transição versionada, forward-only e com recuperação aprovada em T-05; T-03 valida apenas banco descartável | Clone/fixture com dados antes/depois e runbook exercitado em T-05 |
 | CA-10 | Sem fallback inseguro | D-04 | Compatível | Especificado para configs reutilizáveis | Teste de configuração incompleta e logs sem valores |
 | CA-11 | Container efetivamente não root | D-05 | Compatível | Exige prova em runtime, não só Dockerfile | Smoke check da imagem e UID/GID observados |
 | CA-12 | Documentação sem segredos e por ambiente | D-01–D-05 | Compatível | Requer passo operacional e mapa de credenciais | Revisão documental e varredura de placeholders |
@@ -152,7 +152,7 @@ Nenhum critério conflita com D-01–D-05 ou DP-01–DP-06. CA-06 ainda exige pr
 | R1 — Sem ADMIN preexistente | Invocação one-shot autorizada sem JWT/ADMIN; role bootstrap exclusiva e stdin interativo sem eco. | Executar comando sem ADMIN e conferir criação e ausência de segredo na saída/log. | T-02; definir o modo do comando e proteger role/entrada. |
 | R2 — Reexecução concorrente | Uma transação com lock PostgreSQL transacional ou mecanismo equivalente; regra por e-mail e recusa de outro ADMIN aprovadas. | Duas conexões independentes; uma cria e outra conclui no-op/conflito; uma conta e hashes intactos. | T-02; prova de coordenação em PostgreSQL real. |
 | R3 — Flyway e runtime | Job/processo one-shot separado; segredo migrator somente no job; runtime sem DDL. | Testar migrations e runtime com conexões distintas e operações permitidas/negadas. | T-03; selecionar executor e validar `pgcrypto`. |
-| R4 — Ambientes existentes | Inventário, transição versionada forward-only, preservação dos dados, verificações e recuperação documentada; sem rollback automático de migrations. | Exercitar procedimento em clone/fixture e comparar dados, ownership e estado Flyway antes/depois. | T-03/T-05; detalhar sequência e limites de recuperação no plano técnico. |
+| R4 — Ambientes existentes | Inventário, transição versionada forward-only, preservação dos dados, verificações e recuperação documentada; sem rollback automático de migrations. | Exercitar procedimento em clone/fixture e comparar dados, ownership e estado Flyway antes/depois. | T-05; usa definições e mecanismos de privilégio estabelecidos em T-03. |
 | R5 — Testcontainers | Roles separadas; identidade de setup restrita; migrator aplica Flyway; aplicação opera como runtime. | Subir banco limpo e validar contexto, grants e falhas com conexões independentes. | T-03; adaptar `@ServiceConnection` sem reduzir cobertura. |
 | R6 — Docker nonroot | UID/GID numéricos estáveis; permissões mínimas e temporários explicitamente concedidos. | Na imagem executada, observar UID/GID, iniciar JVM, acessar PostgreSQL, verificar health e escrita limitada. | T-04; compatibilidade do UID com filesystem/volumes. |
 
@@ -165,7 +165,7 @@ DP-01 a DP-06 estão aprovadas e não são bloqueios decisórios. Permanecem ati
 3. Definir grants mínimos da role exclusiva de bootstrap sem permitir criação/promoção de ADMIN pela role runtime. O runtime precisa escrever em `users` para registrar USER; a restrição deve ser imposta no PostgreSQL. Não conceder nem negar INSERT indiscriminadamente sem provar esse contrato.
 4. Implementar mensagens e códigos de saída do comando conforme CA-04a e verificar que não expõem dados sensíveis.
 5. Bootstrap interativo é o contrato aprovado. Se surgir necessidade de automação, registrar decisão operacional específica antes de definir entrada não interativa; secret manager está fora do escopo aprovado.
-6. Especificar inventário, pré-condições, backup e recuperação para bancos existentes; não assumir rollback automático de migrations nem retorno a superusuário.
+6. Em T-05, especificar e validar inventário, pré-condições, backup e recuperação para bancos existentes; não assumir rollback automático de migrations nem retorno a superusuário. T-03 limita-se à validação em PostgreSQL descartável.
 7. Confirmar diretórios em que JVM/aplicação escrevem e provar UID/GID estáveis sem permissões amplas.
 
 A política de autorização JWT quando um ADMIN persistido é rebaixado permanece fora do escopo desta iniciativa; não modificar nem inferir comportamento nessa área.

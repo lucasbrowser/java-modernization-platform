@@ -32,16 +32,16 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 **Dependências:** T-01; T-03 deve preceder a integração do comando para fornecer role/credencial bootstrap separada. Qualquer desenvolvimento isolado ainda requer autorização para T-02.
 
-## T-03 — Separar provisionamento, migrations e runtime; migrar bancos existentes
+## T-03 — Separar roles e validar migrations/privilégios PostgreSQL
 
 **Estado:** pendente de autorização.  
-**Objetivo:** garantir migrations fora do processo normal da API e papel runtime com privilégios mínimos, preservando bancos atuais.  
-**Decisões relacionadas:** D-04, DP-03, DP-04 e DP-05.  
-**Escopo:** identidade externa de provisionamento, migrator, runtime e bootstrap; job/processo Flyway one-shot; grants mínimos; extensão `pgcrypto`; transição de banco novo/existente forward-only e recuperação operacional; adaptações Testcontainers. Não editar migrations aplicadas nem apagar volumes.
+**Objetivo:** garantir migrations fora do processo normal da API e comprovar privilégios mínimos das identidades no PostgreSQL.  
+**Decisões relacionadas:** D-04, DP-03 e DP-05.  
+**Escopo:** separar identidades de provisionamento, migrator, runtime e bootstrap; executar Flyway em job/processo one-shot; determinar grants mínimos; analisar V1–V4, `pgcrypto`, funções, triggers, tabelas, constraints e ownership; proteger `users` no PostgreSQL para permitir cadastro `USER` e impedir criação/promoção de `ADMIN`; manter os fluxos normais de vínculo Customer e auditoria; provar privilégios efetivos com conexões distintas em PostgreSQL 16 descartável e adaptar Testcontainers. Configurar a separação das credenciais runtime e migration. A compatibilidade com bancos existentes e sua transição pertencem à T-05, não são comprovadas por T-03. Não editar migrations aplicadas.
 
-**Critérios de conclusão:** migrations funcionam com migrator não superusuário; API inicia com runtime e `ddl-auto: validate`, sem configuração bootstrap obrigatória; API não recebe secrets de migration/bootstrap; runtime consegue registrar USER e executar SQL dos fluxos suportados, inclusive Customer-link e INSERT de auditoria, mas PostgreSQL rejeita INSERT de ADMIN, promoção de USER para ADMIN e tentativa runtime de alterar/desativar a proteção; runtime não consegue DDL/CREATE ROLE/DB/DELETE/TRUNCATE nem modificar/remover auditoria; bootstrap role é exclusiva e não alcançável pela API; transição preserva dados e estado Flyway; falha bloqueia rollout sem fallback a superuser.
+**Critérios de conclusão:** V1–V4 funcionam com migrator não superusuário em PostgreSQL 16 descartável, com pré-requisitos de `pgcrypto` explícitos; API inicia com runtime e `ddl-auto: validate`, sem configuração bootstrap obrigatória, e não recebe secrets de migration/bootstrap; runtime consegue registrar USER e executar SQL dos fluxos suportados, inclusive Customer-link e INSERT de auditoria, mas PostgreSQL rejeita INSERT de ADMIN, promoção de USER para ADMIN e tentativa runtime de alterar/desativar a proteção; runtime não consegue DDL/CREATE ROLE/DB/DELETE/TRUNCATE nem modificar/remover auditoria; bootstrap role é exclusiva e não alcançável pela API; falhas do job são identificáveis e bloqueiam o rollout sem fallback a superuser. Esta tarefa não declara compatibilidade nem executa transição de bancos existentes.
 
-**Testes/evidências esperadas:** PostgreSQL 16 Testcontainers com conexões independentes; banco vazio; migração por Flyway role não superusuária, incluindo prova da extensão `pgcrypto`; API com runtime e `ddl-auto: validate` sem variáveis bootstrap; comprovar INSERT de USER permitido, INSERT de ADMIN e promoção USER→ADMIN negados, e proteção não alterável/desativável pelo runtime; comprovar operações Customer-link/auditoria permitidas e mutação/remoção de auditoria negada; grants permitidos/negados; fixture/clone pré-existente com verificação de dados/ownership/history; ordem e falha do job. Adaptar testes com `@ServiceConnection` sem reduzir cobertura.
+**Testes/evidências esperadas:** PostgreSQL 16 Testcontainers com setup, migrator, runtime e bootstrap em identidades distintas; banco descartável vazio; migração por Flyway role não superusuária e prova dos privilégios/pré-requisitos de `pgcrypto`; API com runtime e `ddl-auto: validate` sem variáveis bootstrap; comprovar INSERT de USER permitido, INSERT de ADMIN e promoção para ADMIN negados, proteção não alterável/desativável pelo runtime, operações Customer-link/auditoria permitidas e mutação/remoção de auditoria negada; provar privilégios DDL/roles e falhas do job. Sem fixture de banco existente nesta tarefa. Adaptar testes com `@ServiceConnection` sem reduzir cobertura.
 
 **Dependências:** T-01. Seleção técnica de executor e grants ocorre após prova. T-02 integrado depende de T-03 concluída.
 
@@ -58,27 +58,27 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 **Dependências:** T-01 para mapear filesystem e requisitos; operação pode ser desenvolvida após autorização sem aguardar T-02/T-03, mas integração final é T-06.
 
-## T-05 — Configuração e documentação operacional
+## T-05 — Transição segura de bancos existentes e documentação operacional
 
 **Estado:** pendente de autorização.  
-**Objetivo:** deixar a configuração reproduzível por ambiente e documentar execução/recuperação.  
-**Decisões relacionadas:** D-01–D-05, DP-01–DP-06.  
-**Escopo:** application config, Compose, `.env.example` e README; variáveis por serviço; sem fallbacks inseguros; ordem de provisionamento, Flyway, bootstrap e API; ambiente local/teste/produção; stdin interativo e limite de automação; procedimento para bancos existentes e recuperação. Não acessar `.env` real.
+**Objetivo:** migrar com segurança bancos existentes para os papéis e privilégios estabelecidos em T-03, preservando dados, e documentar a transição.  
+**Decisões relacionadas:** D-04, DP-03–DP-05.  
+**Escopo:** identificar e validar estados iniciais suportados; usar fixture, clone ou ambiente equivalente; inventariar schema, ownership, extensões, roles/grants, dados e histórico Flyway; aplicar procedimento versionado, idempotente e forward-only, sem reescrever migrations aplicadas; preservar dados e integridade referencial; verificar objetos, privilégios e estado Flyway após a transição; documentar pré-condições, ordem, verificações, falhas e recuperação, sem rollback automático ou fallback a superuser. Pode atualizar documentação operacional relacionada sem antecipar T-02. Não acessar `.env` real.
 
-**Critérios de conclusão:** API recebe apenas runtime credential; migration e bootstrap credentials chegam só aos seus processos autorizados; Compose aguarda migration antes de declarar API pronta; ausência de segredo falha sem revelá-lo; exemplos são placeholders inutilizáveis; runbook não propõe destruição nem rollback automático de migrations.
+**Critérios de conclusão:** procedimento de transição foi exercitado em fixture/clone representativo; dados, integridade referencial e histórico Flyway são preservados; ownership, objetos e privilégios pós-transição são verificados contra os resultados de T-03; reexecução e falhas têm comportamento documentado e não destrutivo; recuperação, pré-condições e limites estão descritos; não há edição de migrations aplicadas nem declaração de transição para estados não testados.
 
-**Testes/evidências esperadas:** validação de configuração ausente; validação do modelo Compose e ordem dos serviços; inspeção das variáveis/segredos por serviço; revisão documental dos passos e placeholders; teste operacional de runbook em clone quando T-03 fornecer fixture.
+**Testes/evidências esperadas:** comparação de inventário e dados antes/depois em clone/fixture; verificações de integridade referencial, ownership relevante, grants, objetos e histórico Flyway; teste de aplicação e reexecução do procedimento nos estados suportados; simulação segura/documentada das falhas recuperáveis; runbook com comandos, pré-condições, validação e recuperação. Não usar banco com dados do usuário.
 
-**Dependências:** T-01 e resultados de T-02, T-03 e T-04 para documentar comportamento final. Coordenar alterações para não interromper execução local.
+**Dependências:** T-01 para critérios de estado inicial; T-03 para roles, grants e mecanismos de proteção; T-02 para integração bootstrap pertinente à configuração final; T-04 para configuração da imagem. Sem essas definições, não iniciar a transição. T-06 valida o resultado integrado.
 
 ## T-06 — Verificação integrada e encerramento
 
 **Estado:** pendente de autorização.  
 **Objetivo:** comprovar critérios CA-01–CA-14 e registrar limitações reais.  
 **Decisões relacionadas:** todas as decisões aprovadas.  
-**Escopo:** regressão pertinente, testes PostgreSQL, fluxo de bootstrap, grants, transição e imagem final; corrigir somente defeitos autorizados nesta iniciativa.
+**Escopo:** regressão pertinente, testes PostgreSQL, fluxo de bootstrap, grants, evidências da transição realizada em T-05 e imagem final; corrigir somente defeitos autorizados nesta iniciativa.
 
-**Critérios de conclusão:** cada CA ligado a evidência real; testes Maven pertinentes passam; Testcontainers comprova roles independentes; comando comprova idempotência/conflitos/corrida e sigilo; transição preserva dados; imagem executa com UID/GID não zero, health e permissões corretas; documentação e matriz atualizadas. Sem declarar propriedades não exercitadas.
+**Critérios de conclusão:** cada CA ligado a evidência real; testes Maven pertinentes passam; Testcontainers comprova roles independentes; comando comprova idempotência/conflitos/corrida e sigilo; evidências de T-05 demonstram preservação dos dados e estado Flyway na transição; imagem executa com UID/GID não zero, health e permissões corretas; documentação e matriz atualizadas. Sem declarar propriedades não exercitadas.
 
 **Evidências esperadas:** comandos e resultados reais; roles/grants usados; testes negados e aceitos; estado de dados antes/depois; logs sem segredo; UID/GID observados; limitações explicitadas.
 
