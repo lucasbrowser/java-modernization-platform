@@ -1,7 +1,7 @@
 # Tarefas — Iniciativa 006
 
 **Status da iniciativa:** em andamento; T-03 concluída com evidências em 2026-10-26.  
-**Autorização vigente:** T-03 foi autorizada e validada nesta execução. T-04, T-05 e T-06 permanecem pendentes de autorização explícita. T-01 segue concluída documentalmente.
+**Autorização vigente:** T-03 foi concluída; T-04 foi autorizada e permanece incompleta devido ao bloqueio de validação Docker registrado abaixo. T-05 e T-06 permanecem pendentes de autorização explícita. T-01 segue concluída documentalmente.
 
 As decisões D-01 a D-05 e DP-01 a DP-06 estão aprovadas. Pendências técnicas e de validação listadas nas tarefas não reabrem esses contratos.
 O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece fora do escopo; não deve ser incluído em nenhuma tarefa desta iniciativa.
@@ -57,7 +57,7 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 ## T-04 — Executar a imagem como usuário não privilegiado
 
-**Estado:** pendente de autorização.  
+**Estado:** incompleta; configuração e verificação reproduzível implementadas, validação da imagem bloqueada por acesso negado ao Docker no ambiente desta execução (2026-10-27).  
 **Objetivo:** executar a aplicação em imagem final com UID/GID numéricos estáveis não root.  
 **Decisões relacionadas:** D-05, DP-06.  
 **Escopo:** permissões mínimas para JAR, certificados, configuração e diretórios temporários; compatibilidade JVM, Postgres e health checks. Não alterar privilégios de aplicação fora da iniciativa.
@@ -65,6 +65,16 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 **Critérios de conclusão:** execução observada com UID/GID configurados diferentes de zero; JVM/API inicia e conecta ao Postgres com runtime role; health checks funcionam; artefatos são legíveis; escrita só ocorre em diretórios requeridos; temporários funcionam; diretórios desnecessários não são graváveis.
 
 **Testes/evidências esperadas:** build e execução da imagem; captura de UID/GID efetivos; smoke check de startup/health e conexão; verificação de leitura de truststore e diretório temporário. Presença de `USER` isoladamente não satisfaz a tarefa.
+
+**Implementação e evidências desta execução:**
+- Dockerfile final declara `USER 10001:10001`; JAR é copiado como root, modo `0444`, e `/app` permanece sem escrita para o usuário de runtime. Não foram alterados Compose, credenciais, migrations ou fluxo da T-03.
+- `scripts/Test-ApiNonRootImage.ps1` constrói uma imagem identificável e verifica o usuário declarado, UID/GID efetivos no container, leitura do JAR e truststore, escrita em `/tmp` e ausência de escrita em `/`, `/app`, `/opt/java/openjdk` e `/etc/ssl/certs`; executa `java -version` sob essa identidade.
+- Sintaxe do script PowerShell validada pelo parser (`PowerShell syntax OK`). A tentativa de invocar o script foi bloqueada pela política de execução do PowerShell (`PSSecurityException`); não foi contornada.
+- `docker version --format '{{.Server.Version}}'` não conseguiu acessar o daemon: acesso negado ao pipe `npipe:////./pipe/docker_engine`. Tentativa direta de `docker build --tag java-modernization-platform:t04 .` também foi bloqueada por acesso negado a `C:\Users\lucas\.docker\buildx\instances`. Assim, imagem não foi construída/executada e UID/GID efetivos, permissões no container, startup, health, conexão PostgreSQL e fluxo Compose não foram comprovados.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" clean test`: BUILD SUCCESS; 180 testes, 0 falhas, 0 erros, 0 ignorados.
+- `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" -DskipTests package`: BUILD SUCCESS.
+
+**Limitações e estado:** a configuração do Dockerfile e o teste focado estão preparados, mas inspeção estática não substitui a prova de execução exigida por DP-06. T-04 permanece incompleta até o script de imagem/container, o smoke de API/health/DB e o fluxo Compose serem executados com Docker acessível. T-05 e T-06 permanecem pendentes.
 
 **Dependências:** T-01 para mapear filesystem e requisitos; operação pode ser desenvolvida após autorização sem aguardar T-02/T-03, mas integração final é T-06.
 
