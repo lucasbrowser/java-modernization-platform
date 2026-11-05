@@ -82,7 +82,7 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 ## T-05 — Transição segura de bancos existentes e documentação operacional
 
-**Estado:** pendente de autorização.  
+**Estado:** em implementação por subtarefas; T-05.1 concluída documentalmente; T-05.2 e seguintes aguardam autorização explícita. T-05 não está concluída.  
 **Objetivo:** migrar com segurança bancos existentes para os papéis e privilégios estabelecidos em T-03, preservando dados, e documentar a transição.  
 **Decisões relacionadas:** D-04, DP-03–DP-05.  
 **Escopo:** identificar e validar estados iniciais suportados; usar fixture, clone ou ambiente equivalente; inventariar schema, ownership, extensões, roles/grants, dados e histórico Flyway; aplicar procedimento versionado, idempotente e forward-only, sem reescrever migrations aplicadas; preservar dados e integridade referencial; verificar objetos, privilégios e estado Flyway após a transição; documentar pré-condições, ordem, verificações, falhas e recuperação, sem rollback automático ou fallback a superuser. Pode atualizar documentação operacional relacionada sem antecipar T-02. Não acessar `.env` real.
@@ -92,6 +92,22 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 **Testes/evidências esperadas:** comparação de inventário e dados antes/depois em clone/fixture; verificações de integridade referencial, ownership relevante, grants, objetos e histórico Flyway; teste de aplicação e reexecução do procedimento nos estados suportados; simulação segura/documentada das falhas recuperáveis; runbook com comandos, pré-condições, validação e recuperação. Não usar banco com dados do usuário.
 
 **Dependências:** T-01 para critérios de estado inicial; T-03 para roles, grants e mecanismos de proteção; T-02 para integração bootstrap pertinente à configuração final; T-04 para configuração da imagem. Sem essas definições, não iniciar a transição. T-06 valida o resultado integrado.
+
+### T-05.1 — Definir estados suportados para transição
+
+**Estado:** concluída documentalmente em 2026-11-05; sem implementação.  
+**Escopo autorizado:** classificar os estados iniciais, registrar critérios objetivos, contrato do inventário, condições de aborto e evidências exigidas.  
+**Matriz:** consultar `plan.md`, seção 3.3, subseção “T-05.1 — Estados iniciais aceitos e classificação”. Estados suportados condicionalmente: V1–V4 íntegros com um owner legado único e conhecido; V1–V5 íntegros com um owner legado único e conhecido. Provisionamento parcial de roles, histórico ausente/inconsistente, ownership misto e objetos/dependências adicionais permanecem não suportados e exigem diagnóstico manual.  
+**Critério de conclusão:** matriz fechada e fail-closed, inventário sem segredos, abortos e evidências documentados; nenhuma transição, script, fixture, migration ou configuração alterada.  
+**Evidência desta execução:** atualização documental de `plan.md` e `tasks.md`. Não houve acesso a banco, alteração de infraestrutura ou execução de testes.
+
+### T-05.2 — Implementar inventário somente leitura e classificador
+
+**Estado:** proposta; depende de autorização explícita própria.  
+**Objetivo:** implementar consultas e classificação somente leitura conforme a matriz de T-05.1, sem alterar roles, owners, grants, schema, dados ou histórico.  
+**Critérios propostos:** reconhecer somente os dois estados condicionais aprovados; emitir recusa clara para todos os demais; não consultar/extrair/registrar segredos; gerar evidências necessárias à revisão operacional.  
+**Verificação proposta:** testes de classificação em PostgreSQL 16 descartável via Testcontainers, cobrindo os dois estados aceitos condicionalmente e todos os estados recusados, incluindo divergências e inventário incompleto. Não executar contra bancos reais.  
+**Dependências:** T-05.1 concluída; autorização explícita de T-05.2. A execução de qualquer transição pertence a uma subtarefa posterior e separadamente autorizada.
 
 ## T-06 — Verificação integrada e encerramento
 

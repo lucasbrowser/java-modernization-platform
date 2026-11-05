@@ -47,6 +47,46 @@ Antes da mudança, inventariar versão do schema/Flyway, owner de schema/objetos
 
 Se falhar: interromper rollout; preservar banco e versão anterior quando compatível; corrigir a etapa de roles/grants e reexecutar de forma idempotente. Restaurar backup é recuperação operacional sujeita a avaliação de perda de transações, não rollback automático. Nunca retornar silenciosamente a API para superuser. Registrar pré-condições e limites no runbook.
 
+#### T-05.1 — Estados iniciais aceitos e classificação
+
+O escopo inicial da transição fica limitado aos estados abaixo, sempre em PostgreSQL 16 e após inventário aprovado. A classificação é fechada: ausência de uma evidência exigida, divergência não explicada ou objeto não classificado resulta em recusa. T-05.1 define o contrato; não implementa o classificador nem autoriza transição de banco.
+
+| Estado observado | Classificação | Pré-condições / motivo |
+|---|---|---|
+| V1–V4 aplicadas com sucesso; histórico e checksums correspondem aos arquivos versionados; objetos da aplicação pertencem integralmente a um único owner legado identificado | **Suportado somente após pré-condições específicas** | Deve haver backup restaurável confirmado, PostgreSQL 16, schema/objetos limitados ao conjunto inventariado, `pgcrypto` compatível e nenhuma role/ACL ou dependência fora do inventário. A transição poderá aplicar V5 como `app_migrator`, após takeover de ownership explicitamente planejado e validado em fixture. |
+| V1–V5 aplicadas com sucesso; histórico e checksums íntegros; objetos da aplicação pertencem integralmente a um único owner legado identificado | **Suportado somente após pré-condições específicas** | Mesmas condições do estado anterior. Trigger/função de auditoria V4 e proteção ADMIN V5 devem corresponder às definições versionadas; não se reaplica migration. A transição ajusta ownership/grants e valida as proteções existentes. |
+| Provisionamento parcial, com algumas roles-alvo já existentes | **Não suportado; diagnóstico manual** | O script atual cria roles sem idempotência e não reconcilia atributos, memberships, credenciais nem grants parciais. Não completar nem alterar roles automaticamente nesta primeira faixa. |
+| Histórico Flyway ausente | **Não suportado; diagnóstico manual** | Não é possível distinguir banco legado compatível de schema criado fora do Flyway. Não inferir baseline nem criar histórico automaticamente. |
+| Checksum divergente, migration malsucedida, versão desconhecida ou sequência incompleta | **Não suportado; diagnóstico manual** | Exige identificar a causa e reconciliar schema/histórico fora do procedimento automático. Não executar `repair`, baseline ou edição de histórico durante a classificação. |
+| Ownership misto, desconhecido ou compartilhado com objetos não relacionados | **Não suportado; diagnóstico manual** | A transferência ampla pode atingir objetos fora da aplicação; não usar `REASSIGN OWNED` como atalho. |
+| Objetos adicionais, extensões/dependências não previstas ou objetos da aplicação fora de `public` | **Não suportado; diagnóstico manual** | A faixa inicial cobre somente o schema/migrations inventariados. Expandir suporte exige análise e aprovação documental, fixture representativa e atualização desta matriz. |
+
+##### Contrato do inventário e classificação
+
+O inventário futuro deve produzir evidências sem consultar, extrair ou registrar senhas e segredos:
+
+- Identidade e versão do servidor PostgreSQL; compatibilidade exata com 16.
+- Linhas de `flyway_schema_history`: versões, estados de sucesso, checksums e descrições; comparação com V1–V5 esperadas.
+- Existência e atributos das roles relacionadas, memberships e grants efetivos. Registrar atributos e nomes, nunca hashes de senha ou material de autenticação.
+- Owners e ACLs de schemas e de todos os objetos: tabelas, índices, constraints, sequences, views, funções e triggers; dependências e objetos referenciados.
+- Extensões, versões, schemas e owners, incluindo `pgcrypto`.
+- Definições efetivas e owners das funções e triggers V4/V5; comparação estrutural com SQL versionado, não apenas presença nominal.
+- Constraints, índices e dependências de chaves estrangeiras; contagens por tabela e verificações de integridade referencial em fotografia consistente.
+- Configuração efetiva e identidades usadas por todos os consumidores, jobs e réplicas da base; confirmar que a API antiga não mantém credencial privilegiada no corte.
+- Evidência de backup concluído e de restauração verificável, sem incluir credenciais nos registros.
+
+##### Aborto obrigatório
+
+Recusar a transição se backup restaurável não estiver confirmado; PostgreSQL não for 16; histórico Flyway estiver ausente, desconhecido, com checksum divergente, migration malsucedida ou sequência não prevista; houver roles com atributos/memberships inesperados; owners, ACLs, objetos ou dependências não puderem ser classificados; V4/V5 estiverem ausentes ou divergirem; houver objeto extra não aprovado; API antiga ainda usar credenciais privilegiadas no corte; ou não for possível comprovar integridade e comparar os dados antes/depois. A classificação desconhecida falha fechada.
+
+##### Evidências exigidas para aprovar um estado
+
+Registrar relatório do inventário antes/depois, classificação e motivo, versão PostgreSQL, histórico Flyway, owners/ACLs e dependências, extensões, definições V4/V5, checksums/contagens de dados e integridade, identidade efetiva de cada consumidor e confirmação de backup restaurável. A aprovação de um estado não aprova execução em outro banco nem amplia a matriz.
+
+##### Dependências
+
+T-05.2 deverá implementar inventário somente leitura e validação da matriz, sem transição. T-05.3 poderá preparar fixtures e testar a transição nos estados aprovados, exclusivamente em PostgreSQL 16 descartável via Testcontainers, após autorização própria. Nenhuma dessas etapas altera os limites aprovados em DP-03–DP-05.
+
 ### 3.4 Ambientes, Testcontainers e segredo
 
 - **Desenvolvimento:** comando interativo explícito; roles e migrations em passo próprio; API só runtime; sem fallback de senha `postgres`.
