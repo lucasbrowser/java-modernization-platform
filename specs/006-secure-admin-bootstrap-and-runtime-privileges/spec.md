@@ -108,7 +108,7 @@ Segredos não são versionados nem registrados. Procedimentos de bootstrap, migr
 
 ## 4.1 Propostas de decisão para T-05.3 (aguardando aprovação)
 
-As propostas D-06 a D-10 foram analisadas documentalmente na T-05.3-A. Elas não alteram D-01 a D-05 ou DP-01 a DP-06 e não estão aprovadas por inferência. A matriz detalhada, alternativas, recomendações e critérios de recuperação estão em `plan.md`, seção 3.3, subseção “T-05.3-A”. Resumo para decisão explícita:
+As propostas D-06 a D-10 foram refinadas documentalmente na T-05.3-B. Elas não alteram D-01 a D-05 ou DP-01 a DP-06 e não estão aprovadas por inferência. A matriz detalhada, alternativas, recomendações, estados, contrato de evidências e critérios de recuperação estão em `plan.md`, seção 3.3, subseção “T-05.3-B”. Resumo para decisão explícita:
 
 | Decisão | Recomendação proposta | Ponto de aprovação |
 |---|---|---|
@@ -117,6 +117,8 @@ As propostas D-06 a D-10 foram analisadas documentalmente na T-05.3-A. Elas não
 | D-08 — Credenciais | Criar credenciais apenas para roles ausentes em V1–V4 por canal protegido; nunca redefinir roles existentes; divergência/credencial não validável aborta antes do corte. | Aprovar canal e condição de validação/distribuição segura. |
 | D-09 — Ownership/grants | `app_migrator` como owner de objetos versionados de aplicação; preservar owner da extensão e do schema `public`; grants de runtime/bootstrap iguais à matriz V5/T-03, com objetos extras recusados. | Aprovar matriz detalhada e ajuste de ACL de EXECUTE das funções V4/V5, se necessário. |
 | D-10 — Recuperação | Retomada só por journal íntegro e estado efetivo exatamente igual ao prefixo registrado; transações curtas por objeto; estados divergentes abortam; recuperação forward-only. | Aprovar estados retomáveis e regra de não reparar automaticamente estados desconhecidos. |
+
+O inventário T-05.2 atualmente não coleta `rolbypassrls`, `rolvaliduntil` nem `rolconfig`, portanto ainda não pode certificar integralmente o perfil proposto de provisionadora. A ampliação do contrato/inventário é dependência futura separada e requer autorização. A criação de credenciais fora da transação do journal também é uma fronteira não atômica: falhas exigem reapresentação e validação protegidas, nunca redefinição automática. Nenhuma dessas propostas autoriza ampliar a matriz de estados iniciais T-05.1.
 
 Até a aprovação explícita, T-05.3 permanece incompleta/bloqueada e nenhuma dessas propostas autoriza implementação ou execução em banco.
 
