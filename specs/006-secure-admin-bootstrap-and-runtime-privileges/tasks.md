@@ -101,13 +101,21 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 **Critério de conclusão:** matriz fechada e fail-closed, inventário sem segredos, abortos e evidências documentados; nenhuma transição, script, fixture, migration ou configuração alterada.  
 **Evidência desta execução:** atualização documental de `plan.md` e `tasks.md`. Não houve acesso a banco, alteração de infraestrutura ou execução de testes.
 
-### T-05.2 — Implementar inventário somente leitura e classificador
+### T-05.2 — Implementar inventário PostgreSQL somente leitura
+
+**Estado:** concluída em 2026-11-05.  
+**Escopo:** comando `--inventory-readonly`, relatório JSON, classificação de candidato técnico, testes Testcontainers PostgreSQL 16 e documentação de uso. Não executa transição.  
+**Implementação:** `DatabaseInventoryCommand` lê credenciais somente das variáveis `INVENTORY_DB_URL`, `INVENTORY_DB_USERNAME` e `INVENTORY_DB_PASSWORD`; usa uma transação `REPEATABLE READ READ ONLY` com rollback e Flyway `info()` por URL JDBC `readOnly=true`. Consulta checksums instalados e compara com checksums dos recursos V1–V5; não chama `migrate`, `repair`, `baseline` ou `clean`. A verificação registra PostgreSQL, Flyway, roles/memberships/atributos, grants efetivos, schemas/owners/ACLs, objetos/dependências, extensões, definições e estado de V4/V5, constraints e contagens sem copiar linhas pessoais.  
+**Classificação:** apenas os dois estados da T-05.1 resultam em `SUPPORTED_V1_V4`/`SUPPORTED_V1_V5` candidato. Histórico ausente, falha e divergência são `REJECTED`; ausência de evidência suficiente resulta em `UNKNOWN` ou bloqueador. Roles incompletas, objetos extras, ownership misto e proteções divergentes são recusados. O estado V1–V5 exige o conjunto completo de roles alvo com atributos/memberships aprovados.  
+**Limites:** consumidores, API antiga, parada de tráfego e restauração do backup não são verificáveis somente pelos catálogos. O relatório os marca como não verificados e não interpreta a referência opcional de backup como prova. A classificação técnica não autoriza transição. A identidade de conexão precisa ter leitura suficiente; ausência de dados necessários bloqueia uma classificação positiva.  
+**Testes/evidências:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" -Dtest=DatabaseInventoryCommandIntegrationTest test` — BUILD SUCCESS; 11 testes, 0 falhas, 0 erros, 0 ignorados. Os cenários cobrem V1–V4, V1–V5, histórico ausente, checksum divergente, migration malsucedida, ownership misto, roles parciais, objeto extra, trigger desabilitado, função divergente e repetição. A comparação antes/depois confirmou dados, objetos, roles, grants, extensões e histórico inalterados no inventário. Não foi executado contra banco persistente.  
+**Arquivos:** `DatabaseInventoryCommand.java`, `JavaModernizationPlatformApplication.java`, `DatabaseInventoryCommandIntegrationTest.java` e `inventory-usage.md`. Migrations, configuração de produção, Docker Compose e roles existentes não foram alterados.
+
+### T-05.3 — Preparar e exercitar a transição em fixtures descartáveis
 
 **Estado:** proposta; depende de autorização explícita própria.  
-**Objetivo:** implementar consultas e classificação somente leitura conforme a matriz de T-05.1, sem alterar roles, owners, grants, schema, dados ou histórico.  
-**Critérios propostos:** reconhecer somente os dois estados condicionais aprovados; emitir recusa clara para todos os demais; não consultar/extrair/registrar segredos; gerar evidências necessárias à revisão operacional.  
-**Verificação proposta:** testes de classificação em PostgreSQL 16 descartável via Testcontainers, cobrindo os dois estados aceitos condicionalmente e todos os estados recusados, incluindo divergências e inventário incompleto. Não executar contra bancos reais.  
-**Dependências:** T-05.1 concluída; autorização explícita de T-05.2. A execução de qualquer transição pertence a uma subtarefa posterior e separadamente autorizada.
+**Escopo proposto:** criar fixtures e validar o procedimento forward-only apenas nos dois estados aprovados, em PostgreSQL 16 descartável via Testcontainers; provar preservação de dados/histórico, ownership e grants pós-transição, repetição e falhas recuperáveis.  
+**Restrições:** nenhuma execução em banco real ou persistente; não alterar migrations aplicadas; não começar sem autorizar T-05.3. Esta etapa não inclui transição operacional de banco do usuário.
 
 ## T-06 — Verificação integrada e encerramento
 

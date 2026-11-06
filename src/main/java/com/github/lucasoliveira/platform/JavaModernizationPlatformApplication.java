@@ -11,6 +11,9 @@ public class JavaModernizationPlatformApplication {
             DatabaseMigrationJob.runFromEnvironment();
             return;
         }
+        if (args.length == 1 && "--inventory-readonly".equals(args[0])) {
+            System.exit(DatabaseInventoryCommand.runFromEnvironment());
+        }
         if (args.length == 1 && "--bootstrap-admin".equals(args[0])) {
             System.exit(BootstrapAdminCommand.runFromEnvironment());
         }
