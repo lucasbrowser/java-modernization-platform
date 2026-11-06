@@ -106,6 +106,20 @@ Imagem final executa com UID diferente de zero e permissões mínimas. Aplicaç�
 
 Segredos não são versionados nem registrados. Procedimentos de bootstrap, migrations e transição de ambiente existente são reproduzíveis, autorizados e não destrutivos. `.env.example` contém apenas placeholders inequivocamente inutilizáveis.
 
+## 4.1 Propostas de decisão para T-05.3 (aguardando aprovação)
+
+As propostas D-06 a D-10 foram analisadas documentalmente na T-05.3-A. Elas não alteram D-01 a D-05 ou DP-01 a DP-06 e não estão aprovadas por inferência. A matriz detalhada, alternativas, recomendações e critérios de recuperação estão em `plan.md`, seção 3.3, subseção “T-05.3-A”. Resumo para decisão explícita:
+
+| Decisão | Recomendação proposta | Ponto de aprovação |
+|---|---|---|
+| D-06 — Checkpoints | Journal reservado no PostgreSQL; cada efeito e checkpoint na mesma transação; cópia externa apenas como evidência; inventário distingue journal conhecido em andamento sem aceitá-lo como estado inicial. | Autorizar exceção transitória de inventário e mecanismo de journal transacional. |
+| D-07 — Provisionadora | Identidade dedicada por ambiente, ativada na janela e distinta de todas as roles da aplicação; sem superuser; capacidade mínima verificada antes de cada etapa. | Aprovar perfil não-superuser e sua capacidade `CREATEROLE` condicional somente para V1–V4. |
+| D-08 — Credenciais | Criar credenciais apenas para roles ausentes em V1–V4 por canal protegido; nunca redefinir roles existentes; divergência/credencial não validável aborta antes do corte. | Aprovar canal e condição de validação/distribuição segura. |
+| D-09 — Ownership/grants | `app_migrator` como owner de objetos versionados de aplicação; preservar owner da extensão e do schema `public`; grants de runtime/bootstrap iguais à matriz V5/T-03, com objetos extras recusados. | Aprovar matriz detalhada e ajuste de ACL de EXECUTE das funções V4/V5, se necessário. |
+| D-10 — Recuperação | Retomada só por journal íntegro e estado efetivo exatamente igual ao prefixo registrado; transações curtas por objeto; estados divergentes abortam; recuperação forward-only. | Aprovar estados retomáveis e regra de não reparar automaticamente estados desconhecidos. |
+
+Até a aprovação explícita, T-05.3 permanece incompleta/bloqueada e nenhuma dessas propostas autoriza implementação ou execução em banco.
+
 ## 5. Critérios de aceitação
 
 - **CA-01:** startup normal não cria ADMIN, não exige configuração/credencial de bootstrap e não falha por sua ausência; nenhum segredo administrativo fixo permanece no código/configuração.

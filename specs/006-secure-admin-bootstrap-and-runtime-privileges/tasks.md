@@ -1,7 +1,7 @@
 # Tarefas — Iniciativa 006
 
 **Status da iniciativa:** em andamento; T-03 concluída com evidências em 2026-10-26.  
-**Autorização vigente:** T-03 e T-04 foram autorizadas e concluídas com as evidências registradas abaixo. T-05 e T-06 permanecem pendentes de autorização explícita. T-01 segue concluída documentalmente.
+**Autorização vigente:** T-03 e T-04 foram autorizadas e concluídas; T-05.1 e T-05.2 foram autorizadas e concluídas; T-05.3-A foi autorizada para análise documental. T-05.3 continua incompleta, aguardando aprovação explícita das propostas D-06 a D-10 antes de implementação. T-05.4 em diante e T-06 permanecem sem autorização.
 
 As decisões D-01 a D-05 e DP-01 a DP-06 estão aprovadas. Pendências técnicas e de validação listadas nas tarefas não reabrem esses contratos.
 O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece fora do escopo; não deve ser incluído em nenhuma tarefa desta iniciativa.
@@ -82,7 +82,7 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 
 ## T-05 — Transição segura de bancos existentes e documentação operacional
 
-**Estado:** em implementação por subtarefas; T-05.1 concluída documentalmente; T-05.2 e seguintes aguardam autorização explícita. T-05 não está concluída.  
+**Estado:** em implementação por subtarefas; T-05.1 concluída documentalmente e T-05.2 implementada; T-05.3 permanece incompleta após análise de viabilidade. T-05 não está concluída.  
 **Objetivo:** migrar com segurança bancos existentes para os papéis e privilégios estabelecidos em T-03, preservando dados, e documentar a transição.  
 **Decisões relacionadas:** D-04, DP-03–DP-05.  
 **Escopo:** identificar e validar estados iniciais suportados; usar fixture, clone ou ambiente equivalente; inventariar schema, ownership, extensões, roles/grants, dados e histórico Flyway; aplicar procedimento versionado, idempotente e forward-only, sem reescrever migrations aplicadas; preservar dados e integridade referencial; verificar objetos, privilégios e estado Flyway após a transição; documentar pré-condições, ordem, verificações, falhas e recuperação, sem rollback automático ou fallback a superuser. Pode atualizar documentação operacional relacionada sem antecipar T-02. Não acessar `.env` real.
@@ -111,11 +111,20 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 **Testes/evidências:** `mvn "-Dmaven.repo.local=C:/Users/lucas/.m2/repository" -Dtest=DatabaseInventoryCommandIntegrationTest test` — BUILD SUCCESS; 11 testes, 0 falhas, 0 erros, 0 ignorados. Os cenários cobrem V1–V4, V1–V5, histórico ausente, checksum divergente, migration malsucedida, ownership misto, roles parciais, objeto extra, trigger desabilitado, função divergente e repetição. A comparação antes/depois confirmou dados, objetos, roles, grants, extensões e histórico inalterados no inventário. Não foi executado contra banco persistente.  
 **Arquivos:** `DatabaseInventoryCommand.java`, `JavaModernizationPlatformApplication.java`, `DatabaseInventoryCommandIntegrationTest.java` e `inventory-usage.md`. Migrations, configuração de produção, Docker Compose e roles existentes não foram alterados.
 
-### T-05.3 — Preparar e exercitar a transição em fixtures descartáveis
+### T-05.3 — Implementar procedimento versionado de transição PostgreSQL
 
-**Estado:** proposta; depende de autorização explícita própria.  
-**Escopo proposto:** criar fixtures e validar o procedimento forward-only apenas nos dois estados aprovados, em PostgreSQL 16 descartável via Testcontainers; provar preservação de dados/histórico, ownership e grants pós-transição, repetição e falhas recuperáveis.  
-**Restrições:** nenhuma execução em banco real ou persistente; não alterar migrations aplicadas; não começar sem autorizar T-05.3. Esta etapa não inclui transição operacional de banco do usuário.
+**Estado:** incompleta em 2026-11-06; autorização recebida e inspeção/análise realizadas; nenhum procedimento ou comando de transição implementado.  
+**Resultado:** não foi possível demonstrar um desenho seguro de retomada com os contratos atuais. O inventário T-05.2 não verifica a capacidade da identidade provisionadora para criar roles/transferir ownership, e os dois estados iniciais têm necessidades diferentes: V1–V4 pode não ter roles alvo nem credenciais configuradas; V1–V5 exige preservar as credenciais das roles já existentes. O checkpoint também não tem localização definida que concilie durabilidade atômica e reconhecimento do inventário: arquivo externo pode divergir de commits PostgreSQL em queda; checkpoint dentro do banco cria objeto que o inventário atual recusa como extra.  
+**Decisões técnicas pendentes:** canal de credenciais somente para roles ausentes; capacidades/memberships não-superuser da identidade de provisionamento; checkpoint durável com concorrência e recuperação após queda; reconhecimento fail-closed de prefixos parciais autorizados sem aceitar ownership misto arbitrário; inventário do estado final/checkpoint; grants exatos de sequências/colunas e owner esperado por tipo de objeto. Detalhes em `plan.md`, seção T-05.3.  
+**Limites desta execução:** nenhuma conexão com banco, fixture, DDL/DML, teste, build ou alteração de migration/configuração de produção; nenhum comando Git. A T-05.3 não está concluída. Não avançar para T-05.4 nem T-06.
+
+### T-05.3-A — Definir contrato de execução, checkpoints e recuperação
+
+**Estado:** análise documental concluída em 2026-11-06; recomendações D-06 a D-10 registradas como propostas e aguardam aprovação explícita. A T-05.3 continua incompleta.  
+**Escopo executado:** comparação de alternativas de journal/checkpoint, identidade provisionadora, credenciais e roles, matriz de ownership/grants derivada de V1–V5, estados parciais e condições operacionais. Nenhuma recomendação foi registrada como decisão aprovada.  
+**Recomendação central:** journal de transição no PostgreSQL, com alteração e checkpoint gravados no mesmo commit; arquivo externo somente como cópia operacional. A T-05.2 deverá futuramente reconhecer apenas o journal exato em progresso como transição em andamento, mantendo-o distinto dos estados iniciais suportados; isso também requer autorização e testes antes da implementação.  
+**Aprovações necessárias:** (D-06) journal e tratamento transitório no inventário; (D-07) perfil não-superuser da identidade provisionadora e `CREATEROLE` condicional em V1–V4; (D-08) canal seguro para credenciais apenas de roles ausentes e condição de validação; (D-09) ownership/grants propostos, preservação dos owners de schema/extensão e ACL das funções V4/V5; (D-10) prefixos parciais retomáveis, journal íntegro e aborto em divergência. Detalhes e matrizes em `plan.md`, subseção “T-05.3-A”; resumo de aprovação em `spec.md`, seção 4.1.  
+**Evidências/limites:** inspeção somente de arquivos e SQL versionado, mais consulta à documentação oficial PostgreSQL 16 para memberships, `CREATEROLE` e ownership. Nenhum banco foi conectado; nenhum segredo foi consultado; nenhum código, teste, configuração ou migration foi alterado; nenhum build/teste/Git foi executado.
 
 ## T-06 — Verificação integrada e encerramento
 
