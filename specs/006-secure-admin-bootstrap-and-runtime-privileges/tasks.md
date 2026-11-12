@@ -1,7 +1,7 @@
 # Tarefas — Iniciativa 006
 
 **Status da iniciativa:** em andamento; T-03 concluída com evidências em 2026-10-26.  
-**Autorização vigente:** T-03 e T-04 foram autorizadas e concluídas; T-05.1 e T-05.2 foram autorizadas e concluídas; T-05.3-A e T-05.3-B foram autorizadas somente para análise/refinamento documental. T-05.3 continua incompleta; D-06 a D-10 aguardam aprovação explícita antes de qualquer implementação. T-05.4 em diante e T-06 permanecem sem autorização.
+**Autorização vigente:** T-03 e T-04 foram autorizadas e concluídas; T-05.1 e T-05.2 foram autorizadas e concluídas; T-05.3-A, T-05.3-B e T-05.3-C foram autorizadas somente para análise/refinamento documental. T-05.3 continua incompleta; D-06 a D-10 aguardam aprovação explícita antes de qualquer implementação. T-05.4 em diante e T-06 permanecem sem autorização.
 
 As decisões D-01 a D-05 e DP-01 a DP-06 estão aprovadas. Pendências técnicas e de validação listadas nas tarefas não reabrem esses contratos.
 O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece fora do escopo; não deve ser incluído em nenhuma tarefa desta iniciativa.
@@ -133,6 +133,14 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 **Resultado:** propostas especificam fingerprint e hash do inventário, identidade/tempo/evento e cadeia de evidências; perfil e capacidades por estágio da provisionadora; credenciais sem segredo em journal/log e sem redefinição automática; matriz para database, schemas, objetos V1–V5, extensão e Flyway; estados forward-only e reconciliação fail-closed. O inventário atual não coleta `rolbypassrls`, `rolvaliduntil` ou `rolconfig`; sua alteração é dependência futura, não autorizada nesta subtarefa.  
 **Limites/evidências:** inspeção estática de SDD, código, SQL e testes existentes, mais consulta a documentação oficial do PostgreSQL 16. Não houve banco, implementação, migration, teste, build, configuração de produção ou consulta de segredo. Somente `spec.md`, `plan.md` e `tasks.md` foram atualizados.  
 **Próxima etapa:** aguardar aprovação explícita, decisão por decisão, de D-06 a D-10. Não iniciar implementação, T-05.4 ou T-06 até autorização própria.
+
+### T-05.3-C — Fechar lacunas do inventário e revisar suficiência de segurança
+
+**Estado:** auditoria documental concluída em 2026-11-06; nenhuma alteração de implementação. D-06 a D-10 permanecem propostas sem aprovação; T-05.3 permanece incompleta.  
+**Inspeção:** `DatabaseInventoryCommand`, testes do inventário, `inventory-usage.md`, `provision-postgres-roles.sql`, migrations V1–V5 e implementações/testes existentes de bootstrap, Flyway, roles e privilégios.  
+**Conclusão:** atributos são consultados apenas para `app_migrator`, `app_runtime` e `app_bootstrap`; `rolbypassrls`, `rolvaliduntil` e `rolconfig` não são coletados. Memberships exibem opções PG16 apenas para vínculos diretos das roles-alvo; não há grafo transitivo nem perfil da provisionadora. Privilégios efetivos cobrem apenas algumas operações/alvos e não atribuem origem direta, herdada, PUBLIC, ownership ou atributos. Database, defaults de ACL, journal e várias classes/propriedades de objetos/dependências não são integralmente identificados. A tabela em `plan.md`, T-05.3-C, registra cobertura, severidade, critério futuro, contrato mínimo e impacto por D-06–D-10.  
+**Regra fail-closed proposta:** valor ausente/nulo, não aplicável, não coletado e não verificável são estados distintos; nenhum dado ausente prova segurança. Para aprovar classificação/transição, todos os elementos obrigatórios devem ser verificados e objetos/capacidades devem estar na allowlist. O inventário atual é somente candidato limitado aos estados T-05.1, não prova de autoridade segura nem de retomada.  
+**Limites:** somente inspeção estática e documentação nos três arquivos SDD permitidos. Não houve banco, segredo, implementação, migration, teste, build ou comando Git. Não foram alterados Java, testes ou scripts. A ampliação do inventário exige autorização futura própria; nenhuma proposta D-06–D-10 foi aprovada.
 
 ## T-06 — Verificação integrada e encerramento
 

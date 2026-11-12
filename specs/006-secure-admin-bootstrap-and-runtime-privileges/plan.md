@@ -99,6 +99,109 @@ Antes da implementação, uma revisão técnica deve especificar: (1) canal segu
 
 As opções abaixo são recomendações técnicas decorrentes da inspeção de V1–V5, `provision-postgres-roles.sql`, T-03 e do inventário T-05.2. Não são decisões aprovadas. T-05.3 permanece incompleta até aprovação explícita e validação posterior em PostgreSQL 16 descartável.
 
+##### T-05.3-C — Auditoria documental da suficiência do inventário (2026-11-06)
+
+Esta auditoria inspecionou `DatabaseInventoryCommand`, seus testes de integração, `inventory-usage.md`, script de provisionamento, migrations V1–V5 e implementações/provas de bootstrap e privilégios. As tabelas abaixo descrevem o comportamento implementado hoje; o contrato futuro proposto não é comportamento existente nem aprovação de D-06–D-10.
+
+##### Atributos de roles
+
+Origem: `pg_roles` (visão de `pg_authid` sem material de senha). A consulta produz linhas apenas para `app_migrator`, `app_runtime` e `app_bootstrap`; não consulta a identidade de inventário nem provisionadora. Campo ausente significa não coletado; SQL NULL é valor nulo/default ou role inexistente conforme o campo; erro geral vira `UNKNOWN/NOT_VERIFIABLE`, sem status individual por atributo.
+
+| Atributo | Coleta/exibição atual | Classificação atual | Risco; regra proposta para provisionadora |
+|---|---|---|---|
+| `rolsuper` | Sim nas roles-alvo, `superuser`. | Exige false nelas. | Provisionadora não verificada. Exigir false e status `VERIFIED`; nulo/desconhecido aborta. |
+| `rolcreaterole` | Sim, `createrole`. | Exige false nas roles-alvo. | Não prova capacidade nem excesso da provisionadora. Exigir false em V1–V5; em V1–V4 permitir true somente se criar roles for aprovado, necessário e limitado à janela. Ausente/nulo aborta. |
+| `rolcreatedb` | Sim, `createdb`. | Exige false nas roles-alvo. | Provisionadora não verificada; exigir false, ausência/nulo aborta. |
+| `rolreplication` | Sim, `replication`. | Exige false nas roles-alvo. | Provisionadora não verificada; exigir false, ausência/nulo aborta. |
+| `rolbypassrls` | **Não coletado.** | Não participa. | Pode contornar RLS. Exigir false para provisionadora e roles relevantes; sem prova, abortar. |
+| `rolinherit` | Sim, `inherit`. | Exige false nas roles-alvo. | Não substitui `inherit_option` do vínculo PG16 nem prova capacidades transitivas. Exigir valor aprovado e analisar vínculos. |
+| `rolcanlogin` | Sim, `login`. | Exige true nas roles-alvo existentes. | Exigir LOGIN apenas na janela autorizada, com plano verificável de desabilitação/revogação após operação; estado inesperado aborta. |
+| `rolvaliduntil` | **Não coletado.** | Não participa. | Não comprova validade. Exigir valor e interpretar NULL como “sem expiração”, não desconhecido; para identidade temporária, NULL aborta. Prazo não substitui revogação e pode não ser imposto pelo método de autenticação. |
+| `rolconfig` | **Não coletado.** | Não participa. | Configuração por role pode alterar defaults/search_path; exigir valor contra allowlist (preferência vazia), incluindo settings por database; desconhecido/diferente aborta. |
+
+A validação atual das roles-alvo exige LOGIN, `NOINHERIT`, sem superuser/createdb/createrole/replication e nenhuma membership direta. Isso é somente perfil parcial dessas roles. Para role inexistente, `role_exists=false` e outros campos SQL NULL não são evidência segura. Erros de visibilidade/consulta resultam em UNKNOWN, mas não há diagnóstico por campo.
+
+##### Memberships
+
+| Informação | Situação atual |
+|---|---|
+| Membro, role concedida | Lê `pg_auth_members` somente para `app_*` como membro; mostra a role concedente. A provisionadora não é alvo. |
+| `admin_option`, `inherit_option`, `set_option` | Exibe as três opções dos vínculos diretos PG16. Validador rejeita qualquer vínculo direto das roles-alvo. |
+| Cadeias indiretas | Não há consulta recursiva nem fechamento transitivo; não prova ausência de caminho para role privilegiada. |
+| Alcance/capacidades | Não calcula `SET ROLE`, privilégios herdados ou poder de conceder memberships em cadeia. |
+
+Analisar somente vínculos diretos é insuficiente para a provisionadora. Contrato futuro: grafo completo de vínculos com member, granted role, grantor e opções PG16; fechos transitivos separados para assumir identidade (`SET`), herdar (`INHERIT`) e administrar/conceder vínculos (`ADMIN`). Reportar caminho até superuser, `CREATEROLE`, `CREATEDB`, replication, `BYPASSRLS`, roles da aplicação, owner legado/final e qualquer owner amplo. Se a identidade leitora não enxergar o grafo completo, classificar NOT_VERIFIABLE e recusar. `NOINHERIT` ou ausência de vínculo direto não prova ausência de alcance transitivo.
+
+##### Privilégios efetivos
+
+| Escopo | Coleta atual | O que não prova |
+|---|---|---|
+| Database/schema | `has_database_privilege` para CONNECT/CREATE/TEMP e `has_schema_privilege` para USAGE/CREATE das roles-alvo no database/schema public; ACL textual dos schemas. | Provisionadora, owner/ACL do database, outros schemas (extras recusados), origem direta/herdada/PUBLIC/ownership. |
+| Tabelas | `has_table_privilege` de sete operações para roles-alvo em seis tabelas; `relacl` em objetos selecionados. | Colunas, grantor/origem, provisionadora, expansão de defaults; escopo é limitado. |
+| Sequences | `has_sequence_privilege` USAGE/SELECT/UPDATE nas sequences public para roles-alvo. | Provisionadora e fonte do privilégio; sequences não são esperadas em V1–V5 e extras devem abortar. |
+| Funções | ACL bruta em funções/procedures públicas; PUBLIC EXECUTE verificado especificamente nas funções V4/V5. | Matriz efetiva geral, herança, defaults/grantor e provisionadora. |
+| `PUBLIC`/defaults | ACL textual; caso específico de função V5. | ACL nula pode significar default, não ausência; `pg_default_acl` não coletado. |
+| Atributos/ownership | Alguns atributos de roles-alvo e owners de subset de objetos. | Atributos administrativos e ownership conferem poderes sem entrada ACL e não são decompostos. |
+
+`has_*_privilege` é evidência do efetivo para principal/operação/objeto consultados, mas não sua fonte. ACL ausente não prova efetivo zero: devem ser considerados defaults, PUBLIC, membership, owner e atributos administrativos. Contrato confiável exige ACL normalizada (grantee/grantor, grant options, PUBLIC e defaults) junto à matriz efetiva da provisionadora e roles-alvo, atribuindo fonte/caminho. Qualquer privilégio extra ou fonte inexplicada bloqueia.
+
+##### Ownership, ACL e cobertura de objetos
+
+| Classe | Descoberta/owner/ACL atuais | Limite e critério de aborto |
+|---|---|---|
+| Database | Não coleta owner/ACL em `pg_database`; apenas efetivos limitados. | Exigir owner, ACL expandida, OID/identidade; divergência ou grant não classificado aborta. |
+| Schemas | Todos não-toast, owner e ACL textual; schema extra bloqueia. | Default/effective ACL não expandida. `platform_transition` hoje é schema extra e recusado. |
+| Tabelas/relations | `pg_class` public: tabelas, partitions, views/materialized, sequences, foreign tables; owner/relacl, exclui Flyway history. | Não abrange grants por coluna/grantor nem classifica integralmente propriedades; qualquer relation extra aborta. |
+| Índices | `relkind=i`, owner/ACL e lista de nomes. | Nome não prova definição/vínculo/validade; qualquer divergência estrutural aborta. |
+| Constraints | Em public, nome/relação/tipo/validada/definição. | Sem owner ou ACL independente; exige definição, vínculo, OID/relação e estado esperados. |
+| Sequences | Descobertas e efetivos para app roles. | Nenhuma esperada em V1–V5; qualquer sequência inicial extra aborta. |
+| Funções/procedures | `pg_proc` public fora de extensão, assinatura/kind/owner/ACL; corpos/proteções específicos comparados. | Não valida genericamente `prosecdef`, configuração/search_path, linguagem/segurança nem ACL efetiva completa. Overload ou definição/propriedade extra aborta. |
+| Triggers | Não internos em public; owner inferido da tabela; proteção compara definição/eventos/enabled. | Outros schemas e triggers internos não analisados; qualquer trigger fora do conjunto comprovado aborta. |
+| Types | Enum/domain em public não pertencente a extensão, owner. | Types base/composite/range/multirange e ACL não cobertos; qualquer type não explicado aborta. |
+| Extensões | Nome/versão/schema/owner; exige pgcrypto. | Membros/ACLs/dependências não enumerados integralmente; exigir conjunto e membros exatos, divergência/extra aborta. |
+| Dependências | `pg_depend` iniciado em objetos public, resolve class/proc/type e usa heurística por namespace/pertencimento a extensão. | Não é grafo completo de todas as classes, direções e objetos internos; OID/classe não resolvido ou caminho não classificado aborta. |
+| Flyway history | Versões, descrição, checksum, sucesso, installed_by e estado; excluído de objetos comuns. | Owner/ACL/estrutura integral não comprovados; exigir verificação própria da tabela e integridade do histórico. |
+| Objetos internos PostgreSQL | Alguns podem aparecer como referências; sem inventário geral de objetos compartilhados/internos. | Não podem ser alvo de alteração. Se não for possível excluí-los do conjunto de operações, abortar. |
+
+##### Matriz de suficiência do inventário
+
+Severidades: **bloqueadora** impede aprovação de D-06–D-10 ou prova de transição; **importante** impede autorização operacional/conclusão, ainda que não impeça classificar uma fotografia inicial; **informativa** é contexto explicitamente fora da inferência automatizada. Um item importante torna-se bloqueador se necessário para aquele estágio.
+
+| Informação necessária | Coletada atualmente? | Classificada? | Necessária para D-06–D-10? | Lacuna/severidade | Critério de aceite futuro |
+|---|---|---|---|---|---|
+| Identidade PostgreSQL/database | Versão, nome e session user; sem fingerprint estável/owner database | Parcial | D-06, D-10 | Bloqueadora | Endpoint lógico, database OID/nome/owner e principal efetivo verificados. |
+| Atributos das app roles | Parcial; faltam bypassrls, validuntil, rolconfig | Parcial p/ T-05.1 | D-07, D-09 | Bloqueadora | Todos os atributos necessários presentes com status individual verificado. |
+| Identidade/atributos da provisionadora | Não | Não | D-07 | Bloqueadora | Principal exato e perfil completo comparado à allowlist do estágio. |
+| Memberships diretas | Só para app roles como membros | Parcial | D-07, D-09, D-10 | Bloqueadora | Todos vínculos com grantor e opções PG16. |
+| Memberships transitivas | Não | Não | D-07, D-09, D-10 | Bloqueadora | Alcances SET/INHERIT/ADMIN e caminhos transitivos comprovados. |
+| Privilégios efetivos | Parcial para app roles/operações limitadas | Sem proveniência completa | D-07, D-09, D-10 | Bloqueadora | Matriz da provisionadora/app roles com fontes direto/herdado/PUBLIC/owner/atributo. |
+| ACL/defaults/grantor | ACL bruta parcial; defaults não expandidos | Não integral | D-06, D-07, D-09 | Bloqueadora | ACL normalizada por OID, grantor, opções, PUBLIC e default privilege mais efetivos. |
+| Ownership | Schemas e subset de objetos public; falta database e outras classes | Parcial | D-07, D-09, D-10 | Bloqueadora | Owners/OIDs completos de cada classe alvo e classes excluídas identificadas. |
+| Funções, triggers, constraints | Parcial, foco V4/V5 e public | Parcial | D-09, D-10 | Bloqueadora | Definições, propriedades, vínculos e ACLs exatos para allowlist; extras recusados. |
+| Extensão/membros/dependências | Metadados extension e dependências parciais | Parcial | D-07, D-09, D-10 | Bloqueadora | Versão/schema/owner/membros/ACL/deps exatos, OIDs resolvidos. |
+| Dados/integridade | Contagens consistentes e constraints validadas | Parcial | D-09, D-10 | Importante na classificação; bloqueadora para provar preservação/conclusão | Comparação antes/depois e integridade verificadas sem copiar dados pessoais. |
+| Journal | Não coletado; schema extra é recusado | Não | D-06, D-10 | Bloqueadora | Estado ausente ou formato único conhecido, ACL segura, cadeia válida e efeito equivalente. |
+| Consumers/backup/corte | Marcados explicitamente não verificáveis | Não | D-08, D-10 | Informativa para inventário; bloqueadora para corte | Evidências operacionais externas rastreáveis, backup restaurável e consumers sem segredo privilegiado. |
+| Estado por campo/ausência | Erro geral UNKNOWN; ausência de atributo não aparece | Não | D-06 a D-10 | Bloqueadora | Status `PRESENT`, `NULL_VALUE`, `NOT_APPLICABLE`, `NOT_COLLECTED` ou `NOT_VERIFIABLE` com origem/motivo. |
+
+##### Contrato mínimo e impacto sobre as decisões
+
+O relatório futuro deve ter versão e fotografia consistente; identidade de server/database e principal de conexão; estado/origem por campo distinguindo valor nulo, não aplicável, não coletado e não verificável; Flyway/schema comparados às migrations; atributos de todas as roles relevantes sem material de autenticação; grafo completo de memberships/opções; ACLs normalizadas e efetivos para database/schema/relação/coluna/sequence/função com PUBLIC/defaults, grantor, herança, ownership e atributos administrativos; inventário OID/classe/nome qualificado/owner/ACL/definição/estado/dependências e classes explicitamente fora de cobertura; extensão e membros; dados/integridade; e journal conhecido/cadeia/fingerprint comparados aos efeitos, ou prova de sua ausência. Evidências operacionais (backup, distribuição e consumers) permanecem separadas de fatos catalogados.
+
+Classificação positiva requer todos os elementos obrigatórios `VERIFIED`, sem lacunas `NOT_COLLECTED`/`NOT_VERIFIABLE`, objetos e capacidades dentro da allowlist T-05.1 e nenhuma capacidade não prevista alcançável. Journal transitório só é reconhecido se formato/cadeia conhecidos e efeitos equivalentes; não amplia estado inicial. Dado ausente não equivale a `false`; ACL ausente não equivale a privilégio zero; objeto não enumerado não equivale a inexistente. Desconhecido resulta em recusa manual.
+
+| Decisão | Inventário atual suficiente? | Fechável documentalmente | Exige implementação/teste futuro |
+|---|---|---|---|
+| D-06 — Journal | **Não.** Não é reconhecido; schema extra é recusado; sem validação de cadeia/ACL/efeito. | Campos, atomicidade e fail-closed podem ser especificados. | Classificador do journal e testes PG16 ausente/legítimo/corrompido/duplicado e crash/commit. |
+| D-07 — Provisionadora | **Não, bloqueadora.** A identidade nem é consultada; faltam atributos e alcance transitivo. | Perfil desejado e capacidades proibidas/condicionais. | Ampliar inventário com autorização própria; provar grafo, efetivos, CREATEROLE condicional, SET/ownership e revogação em fixture. |
+| D-08 — Credenciais | **Não para corte.** Inventário não prova canal, distribuição ou autenticação consumer. | Política sem segredos, sem redefinição e recuperação externa. | Prova de canal/logging/TLS, autenticação e falhas em fronteira externa. |
+| D-09 — Ownership/grants | **Não.** Evidência parcial de T-05.1 não cobre database, provisionadora nem proveniência completa. | Allowlist e abortos por objeto. | Cobertura ACL/ownership expandida e prova PG16 de transferências, grants/revokes e efetivos. |
+| D-10 — Recuperação | **Não.** Sem journal nem baseline completo não prova prefixos/ausência de efeitos. | Máquina de estados e fronteiras não atômicas como proposta. | Reconciliação fail-closed e crash tests PG16 em cada etapa/fronteira. |
+
+O inventário atual serve somente como candidato limitado aos estados T-05.1, conforme suas ressalvas; não atesta segurança da provisionadora, privilégios completos nem retomada D-06–D-10. Nenhuma decisão é aprovada por esta auditoria.
+
+Referências PostgreSQL 16 para semântica dos atributos e visibilidade de `pg_roles`, opções/membership transitiva e privilégios inerentes a ownership/PUBLIC: [pg_roles](https://www.postgresql.org/docs/16/view-pg-roles.html), [Role Membership](https://www.postgresql.org/docs/16/role-membership.html), [System Information Functions](https://www.postgresql.org/docs/16/functions-info.html) e [Privileges](https://www.postgresql.org/docs/16/ddl-priv.html). Essas referências não alteram o achado de que o inventário atual não consulta ou classifica todos esses dados.
+
 ##### D-06 — Checkpoints e retomada
 
 Alternativas: (a) arquivo externo como fonte autoritativa — simples de arquivar, mas não pode fazer commit atômico com PostgreSQL; (b) tabela journal somente no banco — permite atomicidade, mas exige uma exceção estrita no inventário; (c) checkpoint por etapa transacional, combinado com exportação externa — mantém o estado do banco como fonte de verdade e o arquivo como evidência/cópia operacional. **Recomendação: (c).**
