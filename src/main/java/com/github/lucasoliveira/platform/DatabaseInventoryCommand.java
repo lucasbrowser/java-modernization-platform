@@ -6,13 +6,17 @@ import org.flywaydb.core.api.MigrationInfo;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Read-only database inventory entry point for existing PostgreSQL databases. */
 public final class DatabaseInventoryCommand {
@@ -22,6 +26,36 @@ public final class DatabaseInventoryCommand {
     private static final List<String> APP_ROLES = List.of("app_migrator", "app_runtime", "app_bootstrap");
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    enum CollectionState {
+        PRESENT,
+        NULL_VALUE,
+        NOT_APPLICABLE,
+        NOT_COLLECTED,
+        NOT_VERIFIABLE
+    }
+
+    record CollectionEvidence<T>(CollectionState state, T value, String reason) {
+        static <T> CollectionEvidence<T> present(T value) {
+            return new CollectionEvidence<>(CollectionState.PRESENT, Objects.requireNonNull(value), null);
+        }
+
+        static <T> CollectionEvidence<T> nullValue(String reason) {
+            return new CollectionEvidence<>(CollectionState.NULL_VALUE, null, reason);
+        }
+
+        static <T> CollectionEvidence<T> notApplicable(String reason) {
+            return new CollectionEvidence<>(CollectionState.NOT_APPLICABLE, null, reason);
+        }
+
+        static <T> CollectionEvidence<T> notCollected(String reason) {
+            return new CollectionEvidence<>(CollectionState.NOT_COLLECTED, null, reason);
+        }
+
+        static <T> CollectionEvidence<T> notVerifiable(String reason) {
+            return new CollectionEvidence<>(CollectionState.NOT_VERIFIABLE, null, reason);
+        }
+    }
+
     private DatabaseInventoryCommand() {
     }
 
@@ -30,7 +64,8 @@ public final class DatabaseInventoryCommand {
             String url = required("INVENTORY_DB_URL");
             String username = required("INVENTORY_DB_USERNAME");
             String password = required("INVENTORY_DB_PASSWORD");
-            Map<String, Object> report = inspect(url, username, password);
+            Map<String, Object> report = inspect(url, username, password,
+                    optional("INVENTORY_PROVISIONER_ROLE"));
             System.out.println(JSON.writerWithDefaultPrettyPrinter().writeValueAsString(report));
             return "SUPPORTED_V1_V4".equals(report.get("classification"))
                     || "SUPPORTED_V1_V5".equals(report.get("classification")) ? 0 : 3;
@@ -51,8 +86,14 @@ public final class DatabaseInventoryCommand {
     }
 
     static Map<String, Object> inspect(String url, String username, String password) throws Exception {
+        return inspect(url, username, password, null);
+    }
+
+    static Map<String, Object> inspect(String url, String username, String password,
+            String provisionerRoleName) throws Exception {
         Map<String, Object> report = new LinkedHashMap<>();
         List<String> blockers = new ArrayList<>();
+        boolean roleEvidenceUnknown = false;
         report.put("classification", "UNKNOWN");
         report.put("readOnly", true);
         report.put("operationalPrerequisites", Map.of(
@@ -99,17 +140,53 @@ public final class DatabaseInventoryCommand {
                 if (!extraSchemas.isEmpty()) {
                     blockers.add("Additional schemas are outside the supported inventory scope.");
                 }
-                report.put("roles", roleInventory(connection));
-                List<Map<String, Object>> roles = castList(report.get("roles"));
-                long existingTargetRoles = roles.stream().filter(row -> Boolean.TRUE.equals(row.get("role_exists"))).count();
-                if (existingTargetRoles != 0 && existingTargetRoles != APP_ROLES.size()) {
-                    blockers.add("Only part of the target role set exists; manual diagnosis is required.");
-                } else if (existingTargetRoles == APP_ROLES.size() && !validTargetRoles(roles)) {
-                    blockers.add("Existing target roles have attributes or memberships outside the approved profile.");
-                } else if ("V1_V4".equals(migrationState) && existingTargetRoles == APP_ROLES.size()) {
-                    blockers.add("V1-V4 with a fully provisioned target role set is outside the initial supported states.");
-                } else if ("V1_V5".equals(migrationState) && existingTargetRoles != APP_ROLES.size()) {
-                    blockers.add("V1-V5 requires the complete validated target role set.");
+                List<Map<String, Object>> roles;
+                Map<String, Object> provisioner;
+                try {
+                    roles = roleInventory(connection);
+                    provisioner = provisionerInventory(connection, provisionerRoleName);
+                } catch (SQLException roleQueryFailure) {
+                    roles = unverifiableApplicationRoles("Role attributes could not be verified.");
+                    provisioner = unverifiableProvisioner(provisionerRoleName,
+                            "Provisioner role attributes could not be verified.");
+                    roleEvidenceUnknown = true;
+                    blockers.add("Role attributes or memberships could not be verified.");
+                }
+                report.put("roles", roles);
+                report.put("provisioner", provisioner);
+
+                boolean targetRoleExistenceKnown = roles.stream().allMatch(role -> evidenceState(role.get("roleExists"))
+                        == CollectionState.PRESENT);
+                if (!targetRoleExistenceKnown) {
+                    roleEvidenceUnknown = true;
+                    blockers.add("Target role existence cannot be established.");
+                } else {
+                    long existingTargetRoles = roles.stream().filter(DatabaseInventoryCommand::roleExists).count();
+                    if (existingTargetRoles != 0 && existingTargetRoles != APP_ROLES.size()) {
+                        blockers.add("Only part of the target role set exists; manual diagnosis is required.");
+                    } else if (existingTargetRoles == APP_ROLES.size() && !validTargetRoles(roles)) {
+                        blockers.add("Existing target roles have attributes or memberships outside the approved profile.");
+                        roleEvidenceUnknown |= hasUnverifiableAttributes(roles);
+                    } else if ("V1_V4".equals(migrationState) && existingTargetRoles == APP_ROLES.size()) {
+                        blockers.add("V1-V4 with a fully provisioned target role set is outside the initial supported states.");
+                    } else if ("V1_V5".equals(migrationState) && existingTargetRoles != APP_ROLES.size()) {
+                        blockers.add("V1-V5 requires the complete validated target role set.");
+                    }
+                }
+                if (CollectionState.NOT_VERIFIABLE == evidenceState(provisioner.get("roleName"))) {
+                    roleEvidenceUnknown = true;
+                    blockers.add("Provisioner identity cannot be established; set INVENTORY_PROVISIONER_ROLE to inspect it.");
+                } else if (!roleExists(provisioner)) {
+                    blockers.add("Configured provisioner role does not exist or is not verifiable.");
+                    roleEvidenceUnknown |= hasUnverifiableAttributes(List.of(provisioner));
+                } else {
+                    if (hasUnverifiableAttributes(List.of(provisioner))) {
+                        roleEvidenceUnknown = true;
+                        blockers.add("One or more provisioner attributes could not be verified.");
+                    }
+                    if (hasUnsafeProvisionerAttributes(provisioner)) {
+                        blockers.add("Provisioner role has security attributes outside the D1 safe inventory profile.");
+                    }
                 }
                 report.put("effectiveGrants", Map.of(
                         "schemaAndDatabase", query(connection, "SELECT r.rolname AS role, "
@@ -218,7 +295,7 @@ public final class DatabaseInventoryCommand {
             report.put("classification", "REJECTED");
         } else if (blockers.isEmpty()) {
             report.put("classification", "SUPPORTED_" + String.valueOf(castMap(report.get("flyway")).get("state")));
-        } else if ("UNKNOWN".equals(finalFlywayState)
+        } else if (roleEvidenceUnknown || "UNKNOWN".equals(finalFlywayState)
                 || "NOT_VERIFIABLE".equals(finalFlywayState)
                 || blockers.stream().anyMatch(reason -> reason.contains("cannot be established"))) {
             report.put("classification", "UNKNOWN");
@@ -325,26 +402,207 @@ public final class DatabaseInventoryCommand {
     }
 
     private static List<Map<String, Object>> roleInventory(Connection connection) throws SQLException {
-        String sql = "SELECT wanted.name AS name, r.oid IS NOT NULL AS role_exists, r.rolcanlogin AS login, "
-                + "r.rolsuper AS superuser, r.rolcreatedb AS createdb, r.rolcreaterole AS createrole, "
-                + "r.rolinherit AS inherit, r.rolreplication AS replication, "
-                + "COALESCE((SELECT json_agg(json_build_object('role', parent.rolname, 'adminOption', m.admin_option, "
-                + "'inheritOption', m.inherit_option, 'setOption', m.set_option)) FROM pg_auth_members m "
-                + "JOIN pg_roles parent ON parent.oid=m.roleid WHERE m.member=r.oid), '[]'::json) AS memberships "
-                + "FROM (VALUES ('app_migrator'), ('app_runtime'), ('app_bootstrap')) wanted(name) "
-                + "LEFT JOIN pg_roles r ON r.rolname=wanted.name ORDER BY wanted.name";
-        return query(connection, sql);
+        return queryRoles(connection, APP_ROLES, "APPLICATION");
     }
 
-    private static boolean validTargetRoles(List<Map<String, Object>> roles) {
-        return roles.stream().allMatch(role -> Boolean.TRUE.equals(role.get("role_exists"))
-                && Boolean.TRUE.equals(role.get("login"))
-                && Boolean.FALSE.equals(role.get("superuser"))
-                && Boolean.FALSE.equals(role.get("createdb"))
-                && Boolean.FALSE.equals(role.get("createrole"))
-                && Boolean.FALSE.equals(role.get("inherit"))
-                && Boolean.FALSE.equals(role.get("replication"))
-                && "[]".equals(String.valueOf(role.get("memberships"))));
+    private static Map<String, Object> provisionerInventory(Connection connection, String roleName)
+            throws SQLException {
+        if (roleName == null || roleName.isBlank()) {
+            return unverifiableProvisioner(null, "Provisioner role name was not configured; it was not inferred from the connection.");
+        }
+        if (APP_ROLES.contains(roleName)) {
+            return unverifiableProvisioner(roleName, "Provisioner identity must be distinct from application roles.");
+        }
+        return queryRoles(connection, List.of(roleName), "PROVISIONER").getFirst();
+    }
+
+    private static List<Map<String, Object>> queryRoles(Connection connection, List<String> roleNames, String roleType)
+            throws SQLException {
+        String sql = "WITH wanted AS (SELECT name, ordinal FROM unnest(?::text[]) WITH ORDINALITY AS roles(name, ordinal)) "
+                + "SELECT wanted.name, r.oid AS role_oid, r.rolcanlogin AS can_login, r.rolsuper AS superuser, "
+                + "r.rolcreaterole AS create_role, r.rolcreatedb AS create_db, r.rolreplication AS replication, "
+                + "r.rolbypassrls AS bypass_rls, r.rolinherit AS inherit, r.rolvaliduntil AS valid_until, "
+                + "r.rolconfig AS role_config, "
+                + "COALESCE((SELECT json_agg(json_build_object('role', parent.rolname, 'adminOption', m.admin_option, "
+                + "'inheritOption', m.inherit_option, 'setOption', m.set_option)) FROM pg_auth_members m "
+                + "JOIN pg_roles parent ON parent.oid=m.roleid WHERE m.member=r.oid), '[]'::json)::text AS memberships "
+                + "FROM wanted LEFT JOIN pg_roles r ON r.rolname=wanted.name ORDER BY wanted.ordinal";
+        java.sql.Array names = connection.createArrayOf("text", roleNames.toArray(String[]::new));
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setArray(1, names);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<Map<String, Object>> result = new ArrayList<>();
+                while (rows.next()) {
+                    result.add(roleRow(rows, roleType));
+                }
+                return result;
+            }
+        } finally {
+            names.free();
+        }
+    }
+
+    private static Map<String, Object> roleRow(ResultSet row, String roleType) throws SQLException {
+        String roleName = row.getString("name");
+        boolean exists = row.getObject("role_oid") != null;
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("roleType", roleType);
+        result.put("roleName", CollectionEvidence.present(roleName));
+        result.put("roleExists", CollectionEvidence.present(exists));
+
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("rolsuper", booleanAttribute(row, "superuser", exists));
+        attributes.put("rolcreaterole", booleanAttribute(row, "create_role", exists));
+        attributes.put("rolcreatedb", booleanAttribute(row, "create_db", exists));
+        attributes.put("rolreplication", booleanAttribute(row, "replication", exists));
+        attributes.put("rolbypassrls", booleanAttribute(row, "bypass_rls", exists));
+        attributes.put("rolinherit", booleanAttribute(row, "inherit", exists));
+        attributes.put("rolcanlogin", booleanAttribute(row, "can_login", exists));
+        attributes.put("rolvaliduntil", validUntilAttribute(row, exists));
+        attributes.put("rolconfig", roleConfigAttribute(row, exists));
+        result.put("attributes", attributes);
+        result.put("memberships", exists
+                ? CollectionEvidence.present(row.getString("memberships"))
+                : CollectionEvidence.notApplicable("Role does not exist."));
+        return result;
+    }
+
+    private static CollectionEvidence<Boolean> booleanAttribute(ResultSet row, String column, boolean roleExists)
+            throws SQLException {
+        if (!roleExists) {
+            return CollectionEvidence.notApplicable("Role does not exist.");
+        }
+        boolean value = row.getBoolean(column);
+        return row.wasNull() ? CollectionEvidence.nullValue("PostgreSQL returned NULL for this role attribute.")
+                : CollectionEvidence.present(value);
+    }
+
+    private static CollectionEvidence<String> validUntilAttribute(ResultSet row, boolean roleExists) throws SQLException {
+        if (!roleExists) {
+            return CollectionEvidence.notApplicable("Role does not exist.");
+        }
+        Timestamp value = row.getTimestamp("valid_until");
+        return value == null ? CollectionEvidence.nullValue("Role has no password-authentication expiry configured.")
+                : CollectionEvidence.present(value.toInstant().toString());
+    }
+
+    private static CollectionEvidence<List<String>> roleConfigAttribute(ResultSet row, boolean roleExists)
+            throws SQLException {
+        if (!roleExists) {
+            return CollectionEvidence.notApplicable("Role does not exist.");
+        }
+        java.sql.Array settings = row.getArray("role_config");
+        if (settings == null) {
+            return CollectionEvidence.nullValue("Role has no role-level configuration settings.");
+        }
+        try {
+            Object raw = settings.getArray();
+            if (!(raw instanceof Object[] values)) {
+                return CollectionEvidence.notVerifiable("Role settings were omitted because their representation was not recognized.");
+            }
+            if (values.length == 0) {
+                return CollectionEvidence.present(List.of());
+            }
+            return CollectionEvidence.notVerifiable(
+                    "Non-empty role settings are redacted; this inventory version does not evaluate their values.");
+        } finally {
+            settings.free();
+        }
+    }
+
+    private static List<Map<String, Object>> unverifiableApplicationRoles(String reason) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (String name : APP_ROLES) {
+            result.add(unverifiableRole(name, "APPLICATION", reason));
+        }
+        return result;
+    }
+
+    private static Map<String, Object> unverifiableProvisioner(String roleName, String reason) {
+        Map<String, Object> result = unverifiableRole(roleName, "PROVISIONER", reason);
+        if (roleName == null || roleName.isBlank()) {
+            result.put("roleName", CollectionEvidence.notVerifiable(reason));
+        }
+        return result;
+    }
+
+    private static Map<String, Object> unverifiableRole(String roleName, String roleType, String reason) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("roleType", roleType);
+        result.put("roleName", roleName == null
+                ? CollectionEvidence.notVerifiable(reason) : CollectionEvidence.present(roleName));
+        result.put("roleExists", CollectionEvidence.notVerifiable(reason));
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        for (String attribute : List.of("rolsuper", "rolcreaterole", "rolcreatedb", "rolreplication",
+                "rolbypassrls", "rolinherit", "rolcanlogin", "rolvaliduntil", "rolconfig")) {
+            attributes.put(attribute, CollectionEvidence.notVerifiable(reason));
+        }
+        result.put("attributes", attributes);
+        result.put("memberships", CollectionEvidence.notVerifiable(reason));
+        return result;
+    }
+
+    static boolean validTargetRoles(List<Map<String, Object>> roles) {
+        return roles.stream().allMatch(role -> roleExists(role)
+                && attributeEquals(role, "rolcanlogin", true)
+                && attributeEquals(role, "rolsuper", false)
+                && attributeEquals(role, "rolcreatedb", false)
+                && attributeEquals(role, "rolcreaterole", false)
+                && attributeEquals(role, "rolinherit", false)
+                && attributeEquals(role, "rolreplication", false)
+                && attributeEquals(role, "rolbypassrls", false)
+                && nullOrPresentAttribute(role, "rolvaliduntil")
+                && emptyOrNullConfig(role)
+                && "[]".equals(evidenceValue(role.get("memberships"))));
+    }
+
+    private static boolean roleExists(Map<String, Object> role) {
+        return evidenceEquals(role.get("roleExists"), CollectionState.PRESENT, true);
+    }
+
+    private static boolean attributeEquals(Map<String, Object> role, String name, Object expected) {
+        return evidenceEquals(attribute(role, name), CollectionState.PRESENT, expected);
+    }
+
+    private static boolean nullOrPresentAttribute(Map<String, Object> role, String name) {
+        CollectionState state = evidenceState(attribute(role, name));
+        return state == CollectionState.NULL_VALUE || state == CollectionState.PRESENT;
+    }
+
+    private static boolean emptyOrNullConfig(Map<String, Object> role) {
+        Object evidence = attribute(role, "rolconfig");
+        return evidenceState(evidence) == CollectionState.NULL_VALUE
+                || evidenceEquals(evidence, CollectionState.PRESENT, List.of());
+    }
+
+    private static boolean hasUnverifiableAttributes(List<Map<String, Object>> roles) {
+        return roles.stream().anyMatch(role -> castMap(role.get("attributes")).values().stream()
+                .anyMatch(value -> evidenceState(value) == CollectionState.NOT_VERIFIABLE
+                        || evidenceState(value) == CollectionState.NOT_COLLECTED));
+    }
+
+    private static boolean hasUnsafeProvisionerAttributes(Map<String, Object> role) {
+        return attributeEquals(role, "rolsuper", true)
+                || attributeEquals(role, "rolcreatedb", true)
+                || attributeEquals(role, "rolreplication", true)
+                || attributeEquals(role, "rolbypassrls", true);
+    }
+
+    private static Object attribute(Map<String, Object> role, String name) {
+        return castMap(role.get("attributes")).get(name);
+    }
+
+    private static boolean evidenceEquals(Object value, CollectionState state, Object expected) {
+        return value instanceof CollectionEvidence<?> evidence && evidence.state() == state
+                && Objects.equals(evidence.value(), expected);
+    }
+
+    private static CollectionState evidenceState(Object value) {
+        return value instanceof CollectionEvidence<?> evidence ? evidence.state() : CollectionState.NOT_VERIFIABLE;
+    }
+
+    private static Object evidenceValue(Object value) {
+        return value instanceof CollectionEvidence<?> evidence ? evidence.value() : null;
     }
 
     private static String objectInventorySql() {
@@ -560,5 +818,10 @@ public final class DatabaseInventoryCommand {
             throw new IllegalStateException("Required environment variable is missing: " + name);
         }
         return value;
+    }
+
+    private static String optional(String name) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? null : value;
     }
 }
