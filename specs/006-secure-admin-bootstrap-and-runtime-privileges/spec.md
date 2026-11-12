@@ -122,6 +122,12 @@ Auditoria da T-05.3-C concluiu que o gap é mais amplo que esses três campos: a
 
 Até a aprovação explícita, T-05.3 permanece incompleta/bloqueada e nenhuma dessas propostas autoriza implementação ou execução em banco.
 
+### Plano de evolução do inventário (T-05.3-D)
+
+A auditoria da T-05.3-C será atendida por sete subtarefas planejadas: D1 atributos e estados de coleta; D2 grafo de memberships; D3 proveniência de privilégios efetivos; D4 ownership/ACLs/objetos; D5 journal/checkpoints (somente após aprovação D-06/D-10); D6 integridade e evidências externas; D7 consolidação/classificação. Dependências, arquivos previstos, testes PG16/Testcontainers, critérios de aceite, riscos e limites estão em `plan.md`, subseção T-05.3-D. A sequência recomendada é D1 → (D2 e D4) → D3 → (D5 e D6) → D7.
+
+O contrato futuro mantém o inventário estritamente somente leitura, distingue valor nulo de não coletado/não verificável, omite ou redige configurações sensíveis e não considera contagem isolada prova de preservação. Evidências de backup/restauração, consumidores, distribuição/autenticação de credenciais, janela, corte e aprovação são externas e nunca incluem segredos. A decomposição é planejamento; cada subtarefa exige autorização explícita própria. D-06 a D-10 continuam pendentes e T-05.3 permanece incompleta.
+
 ## 5. Critérios de aceitação
 
 - **CA-01:** startup normal não cria ADMIN, não exige configuração/credencial de bootstrap e não falha por sua ausência; nenhum segredo administrativo fixo permanece no código/configuração.

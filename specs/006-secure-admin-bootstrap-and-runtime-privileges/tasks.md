@@ -1,7 +1,7 @@
 # Tarefas — Iniciativa 006
 
 **Status da iniciativa:** em andamento; T-03 concluída com evidências em 2026-10-26.  
-**Autorização vigente:** T-03 e T-04 foram autorizadas e concluídas; T-05.1 e T-05.2 foram autorizadas e concluídas; T-05.3-A, T-05.3-B e T-05.3-C foram autorizadas somente para análise/refinamento documental. T-05.3 continua incompleta; D-06 a D-10 aguardam aprovação explícita antes de qualquer implementação. T-05.4 em diante e T-06 permanecem sem autorização.
+**Autorização vigente:** T-03 e T-04 foram autorizadas e concluídas; T-05.1 e T-05.2 foram autorizadas e concluídas; T-05.3-A, T-05.3-B, T-05.3-C e T-05.3-D foram autorizadas somente para análise, auditoria e planejamento documental. T-05.3 continua incompleta; D-06 a D-10 aguardam aprovação explícita antes de qualquer implementação. T-05.4 em diante e T-06 permanecem sem autorização.
 
 As decisões D-01 a D-05 e DP-01 a DP-06 estão aprovadas. Pendências técnicas e de validação listadas nas tarefas não reabrem esses contratos.
 O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece fora do escopo; não deve ser incluído em nenhuma tarefa desta iniciativa.
@@ -141,6 +141,27 @@ O tratamento de JWT emitido antes do rebaixamento persistido de ADMIN permanece 
 **Conclusão:** atributos são consultados apenas para `app_migrator`, `app_runtime` e `app_bootstrap`; `rolbypassrls`, `rolvaliduntil` e `rolconfig` não são coletados. Memberships exibem opções PG16 apenas para vínculos diretos das roles-alvo; não há grafo transitivo nem perfil da provisionadora. Privilégios efetivos cobrem apenas algumas operações/alvos e não atribuem origem direta, herdada, PUBLIC, ownership ou atributos. Database, defaults de ACL, journal e várias classes/propriedades de objetos/dependências não são integralmente identificados. A tabela em `plan.md`, T-05.3-C, registra cobertura, severidade, critério futuro, contrato mínimo e impacto por D-06–D-10.  
 **Regra fail-closed proposta:** valor ausente/nulo, não aplicável, não coletado e não verificável são estados distintos; nenhum dado ausente prova segurança. Para aprovar classificação/transição, todos os elementos obrigatórios devem ser verificados e objetos/capacidades devem estar na allowlist. O inventário atual é somente candidato limitado aos estados T-05.1, não prova de autoridade segura nem de retomada.  
 **Limites:** somente inspeção estática e documentação nos três arquivos SDD permitidos. Não houve banco, segredo, implementação, migration, teste, build ou comando Git. Não foram alterados Java, testes ou scripts. A ampliação do inventário exige autorização futura própria; nenhuma proposta D-06–D-10 foi aprovada.
+
+### T-05.3-D — Planejar a evolução do inventário PostgreSQL
+
+**Estado:** planejamento documental concluído em 2026-11-12; nenhuma implementação autorizada ou iniciada. D-06–D-10 seguem pendentes e T-05.3 permanece incompleta.  
+**Objetivo:** decompor as lacunas da auditoria T-05.3-C em evolução incremental e testável do inventário read-only.  
+**Arquitetura planejada:** evidências versionadas por campo/principal e fotografia PG16 read-only; coletores de roles, memberships, ACL/ownership/objetos, efetivos/proveniência, journal, integridade e evidências externas; classificador compõe os resultados fail-closed. Valores de configuração potencialmente sensíveis são avaliados contra allowlist e redigidos; nenhum segredo é reportado.  
+**Subtarefas futuras e dependências:**
+
+| Subtarefa | Escopo/objetivo | Dependências | Arquivos previstos | Prova PG16 e critério resumido |
+|---|---|---|---|---|
+| T-05.3-D1 | Estados de coleta e nove atributos para app roles, provisionadora, sessão, owners e roles relevantes; redaction. | T-05.3-C | `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md` | Atributos verdadeiros/falsos/nulos, roles ausentes, config sensível, visibilidade insuficiente; todo campo tem origem/status e dado ausente bloqueia. |
+| T-05.3-D2 | Grafo member/granted role, grantor e opções PG16; capacidades transitivas SET/INHERIT/ADMIN e caminhos. | D1 | Mesmos arquivos do inventário | Vínculos diretos/indiretos, opções, SET possível/impossível, herança, ADMIN e ciclos inesperados; paths explicados e grafo incompleto bloqueia. |
+| T-05.3-D4 | Ownership, ACLs, objetos e dependências por classe; OID e limites. | D1; base para D3/D5/D7 | Mesmos arquivos do inventário | Database, schemas, relações, índices, constraints, sequences, funções/procedures, triggers, types, extensões, Flyway, defaults; ACLs nulas/PUBLIC, OIDs/recriação e desconhecidos. |
+| T-05.3-D3 | Privilégios efetivos e proveniência direta, herdada, PUBLIC, ownership e administrativa. | D1, D2, D4 | Mesmos arquivos do inventário | Cruzar explicação com funções `has_*` e tentativas por conexões fixture; privilégio sem fonte explicada bloqueia. |
+| T-05.3-D5 | Reconhecimento de journal/checkpoints, sequência, cadeia, identidade e correspondência com efeitos. | D1–D4 e aprovação explícita D-06/D-10 | Mesmos arquivos do inventário | Journal válido/inválido/duplicado/divergente, eventos faltantes e efeitos sem checkpoint; inventário não grava journal e não amplia T-05.1. |
+| T-05.3-D6 | Dados/integridade e evidências externas de backup, consumers, credenciais, janela/corte/aprovação. | D1/D4; integra com D7 | Mesmos arquivos; contrato externo pode requerer documentação adicional ainda sujeita a autorização | Snapshot, contagens/constraints/sequences/auditoria/Flyway e diferenças demonstram que contagem isolada não prova preservação; evidência externa separada, rastreável e sem segredo. |
+| T-05.3-D7 | Consolidar formato, classificação, bloqueadores e relatório read-only. | D1–D6; decisões aprovadas quando aplicáveis | `DatabaseInventoryCommand.java`, `JavaModernizationPlatformApplication.java` somente se necessário, teste de integração e `inventory-usage.md` | Matriz ponta a ponta T-05.1, UNKNOWN/REJECTED, sem falsos `SUPPORTED`, segredo ausente e comparação antes/depois comprova ausência de mutação. |
+
+**Sequência recomendada:** D1 → D2 e D4 (após D1; podem ocorrer em paralelo) → D3 (após D2/D4) → D5 (após D1–D4 e aprovação D-06/D-10) e D6 (pode ocorrer após D1/D4) → D7. Cada subtarefa requer autorização individual e segue uma por vez; conclusão de uma não autoriza a seguinte.  
+**Estratégia de testes:** PostgreSQL 16 descartável via Testcontainers; setup/principals separados; fixture preparada antes da leitura; chamadas do inventário em READ ONLY; comparar dados, roles, memberships, ownership, grants, extensões, Flyway e journal antes/depois; falha de visibilidade deve ser NOT_VERIFIABLE. Testes de transição são separados e dependem de autorização posterior.  
+**Limites e riscos:** OIDs não são identidade global/perpétua; mudança entre snapshot e uso é TOCTOU; visibilidade dos catálogos, tamanho do grafo/relatório, custo de varreduras e redaction de `rolconfig` podem impedir prova; journal não é prova contra owner/superuser; checksums/digests podem vazar informação. Manter fail-closed e documentar cobertura. Nada nesta tarefa altera código, testes, migrations ou configuração, conecta a banco, executa build/testes ou aprova D-06–D-10.
 
 ## T-06 — Verificação integrada e encerramento
 

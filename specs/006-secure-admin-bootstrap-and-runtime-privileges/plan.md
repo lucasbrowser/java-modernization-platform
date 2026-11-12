@@ -202,6 +202,117 @@ O inventário atual serve somente como candidato limitado aos estados T-05.1, co
 
 Referências PostgreSQL 16 para semântica dos atributos e visibilidade de `pg_roles`, opções/membership transitiva e privilégios inerentes a ownership/PUBLIC: [pg_roles](https://www.postgresql.org/docs/16/view-pg-roles.html), [Role Membership](https://www.postgresql.org/docs/16/role-membership.html), [System Information Functions](https://www.postgresql.org/docs/16/functions-info.html) e [Privileges](https://www.postgresql.org/docs/16/ddl-priv.html). Essas referências não alteram o achado de que o inventário atual não consulta ou classifica todos esses dados.
 
+##### T-05.3-D — Plano de evolução do inventário (2026-11-12)
+
+**Estado:** planejamento documental concluído; execução futura não autorizada. D-06 a D-10 continuam propostas até aprovação explícita. O escopo futuro do inventário é somente leitura e não altera dados, roles, ownership, ACLs, migrations ou journal.
+
+Compatibilidade a preservar nas tarefas futuras: PostgreSQL 16, Java 21, Spring Boot 3.3.5, Maven e Testcontainers já usados pelo projeto; não alterar contratos da API nem migrations V1–V5. Manter runtime, migrator, bootstrap e provisionadora como identidades separadas. Inventário não reutiliza credenciais privilegiadas no processo da API.
+
+###### Arquitetura proposta
+
+Evoluir `DatabaseInventoryCommand` em camadas de coleta tipadas e versionadas, mantendo uma única fotografia PostgreSQL 16 em transação `REPEATABLE READ READ ONLY`. Separar: identidade/fingerprint; coleta catalogal; normalização de ACLs/grafo; avaliação de efetivos; classificação fail-closed; serialização do relatório sem segredos. Cada campo de evidência inclui origem/catálogo, escopo, valor quando seguro e estado `PRESENT`, `NULL_VALUE`, `NOT_APPLICABLE`, `NOT_COLLECTED` ou `NOT_VERIFIABLE`, mais razão para não verificação. Ausência de visibilidade ou falha SQL nunca vira `false`/aprovação.
+
+Identidades cobertas incluem `session_user`/`current_user`, roles de aplicação, provisionadora indicada por parâmetro/configuração explicitamente não secreto, owner legado/final, roles alcançáveis no grafo e PUBLIC. O inventário não deve consultar `rolpassword`, verifiers, secrets de conexão ou dados de credencial. Para `rolconfig`/settings por role-database, avaliar as chaves/valores apenas em memória contra allowlist e nunca imprimir valores potencialmente sensíveis; relatório apresenta chave permitida e resultado da comparação, ou categoria redigida. Falha para inspecionar configuração resulta em `NOT_VERIFIABLE`.
+
+Coleta bruta deve manter identificadores qualificados e escopo; normalização não substitui evidência. O avaliador produz uma explicação da decisão e dos caminhos de privilégio. Uma chamada `has_*_privilege` pode validar resultado efetivo de uma operação, mas não é explicação de proveniência. Todas as consultas permanecem SELECT/catálogos e verificação read-only; cada teste compara estado antes/depois e falha se o inventário mutar o banco.
+
+##### Subtarefas futuras (cada uma requer autorização explícita própria)
+
+Os nomes/arquivos abaixo são planejamento, não autorização de alteração. Implementação em tarefa por vez; arquivos de produção/teste previstos são os mínimos conhecidos e poderão ser refinados no plano de execução individual, sem tocar migrations V1–V5 nem configuração de produção.
+
+###### T-05.3-D1 — Estados de coleta e atributos de roles
+
+- **Objetivo/escopo:** modelo de evidência e status por campo; coletar os nove atributos listados na auditoria para app roles, principal de conexão, provisionadora explicitamente configurada, owners e roles relevantes. Tratar roles ausentes, NULL/default, inaplicável e sem visibilidade separadamente; classificar perfil da provisionadora por estágio V1–V4/V1–V5. Redigir `rolconfig`/settings sem valores sensíveis.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`.
+- **Dependências:** T-05.3-C concluída; D-07 ainda proposta, por isso implementar coleta genérica não pode assumir atributos aprovados nem declarar transição elegível.
+- **Testes PG16/Testcontainers:** atributos true/false; validade finita/NULL; config vazia, allowlisted e proibida com valor-canário que não pode aparecer no JSON; role ausente; privilégio insuficiente de leitura; saída não revela senha/verifier/configuração sensível; repetição read-only.
+- **Aceite:** cada atributo tem origem, valor/status explícitos e regra; provisionadora é identificada sem segredo; campo invisível é bloqueador; ausência de role não se confunde com role segura; relatório não contém valores confidenciais.
+- **Riscos:** visão/configuração insuficiente, settings por database omitidos, leaks em logs/JSON, significado de validade limitado ao método de autenticação.
+- **Fora:** criar/alterar roles, provisionar credenciais, ampliar estados suportados ou aprovar D-07.
+
+###### T-05.3-D2 — Grafo de memberships e capacidades transitivas
+
+- **Objetivo/escopo:** coletar arestas member→granted role, grantor e opções `ADMIN`, `INHERIT`, `SET`; analisar fechamento transitivo em separado para SET ROLE, herança e administração de memberships, anotando caminhos para identidades privilegiadas/owners.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`.
+- **Dependências:** D1 para estados/origem de role; requer contrato explícito de quais principals e roles de catálogo devem ser alcançáveis. Pode ser desenvolvido independentemente de D3/D4, mas consolidação aguarda ambos.
+- **Testes PG16/Testcontainers:** vínculo direto aceito/negado; caminhos indiretos; SET possível/impossível comparado a tentativa real em conexão fixture; herança ligada/desligada; ADMIN OPTION; opção SET/INHERIT false; tentativa de ciclo rejeitada pelo PostgreSQL e grafo não aprovado se catálogo inesperado/inconsistente.
+- **Aceite:** relatório apresenta arestas e paths; capacidades são calculadas de acordo com opção em cada elo; distinção entre identidade assumível, privilégio herdado e poder de grant; grafo incompleto ou role privilegiada inesperada bloqueia.
+- **Riscos:** semântica PG16 por opção, crescimento do grafo, privilégios de leitura insuficientes, interpretação equivocada de atributo `rolinherit` isolado.
+- **Fora:** alterar memberships, testar/escalar privilégios no banco alvo ou assumir que ausência de ciclo no cálculo substitui validação PostgreSQL.
+
+###### T-05.3-D4 — Descoberta de objetos, ownership e ACLs
+
+- **Objetivo/escopo:** construir inventário por catálogo e classe para database, schemas, relations, índices, constraints, sequences, funções/procedures, triggers, tipos, extensões/membros, Flyway history, defaults e dependências. Capturar OID mais classe/escopo, nome qualificado, owner, ACL normalizada, grantor/grantee/grant option e definição/estado relevante; identificar lacunas de visibilidade.
+- **Descoberta planejada:** `pg_database` (`datdba`, `datacl`); `pg_namespace`; `pg_class`/`pg_attribute`; `pg_index`; `pg_constraint`; `pg_sequence`; `pg_proc`; `pg_trigger`; `pg_type`; `pg_extension` e seus membros por `pg_depend` (`deptype='e'`); dependências de objetos por `pg_depend` e dependências compartilhadas pertinentes via `pg_shdepend`; defaults em `pg_default_acl`; ACLs por colunas/catálogo apropriado expandidas com `aclexplode`. Flyway history e journal são relações normais cujos owners/ACL/estrutura também devem ser verificados. Objetos internos serão enumerados apenas no escopo alcançável das operações permitidas e classificados como não alteráveis; uma classe/OID não resolvida bloqueia. Validar visibilidade por role de leitura, não presumir catálogo integralmente visível.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`.
+- **Dependências:** D1 para principals/status; estabelece base de objetos para D3/D5/D7.
+- **Testes PG16/Testcontainers:** cada classe suportada; ACL explícita, nula/default, PUBLIC, ownership, extension member, dependências resolvidas/não resolvidas, partições/overloads e objetos extras. Confirmar que OID é estável apenas no ciclo de vida do objeto/database: DROP/CREATE pode reutilizar/alterar identidade; rename preserva OID mas altera nome; restauração/clonagem pode mudar OIDs. Divergência OID+identidade/definição invalida inventário aprovado.
+- **Aceite:** toda classe tem cobertura afirmada/limitação; identidade composta por database fingerprint + catálogo/classe + OID/objsubid e nome qualificado; nenhuma transferência de objeto não allowlisted; item não resolvido bloqueia classificação automática.
+- **Riscos:** catálogo muda por versão, objects implícitos/internos, ACL padrão, OID não global/imutável, consulta com visibilidade incompleta e custo.
+- **Fora:** qualquer ALTER OWNER/GRANT/REVOKE, manipulação de migration history, extensão ou objeto interno.
+
+###### T-05.3-D3 — Privilégios efetivos e proveniência
+
+- **Objetivo/escopo:** combinar ACL normalizada D4, memberships D2, atributos D1 e ownership para explicar para cada principal/operação o privilégio efetivo e a proveniência: direto, herdado (com path), PUBLIC, ownership, administrativo, múltiplas origens ou não verificável. Cobrir database/schema/table/column/sequence/function e default privileges.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`.
+- **Dependências:** D1, D2 e D4.
+- **Testes PG16/Testcontainers:** mesmo efetivo por grants direto/herdado/PUBLIC/owner; grant options; default ACL; colunas; funções; capacidades administrativas; comparação da explicação ao resultado PostgreSQL `has_*_privilege` e tentativas permitidas/negadas em conexões de fixture.
+- **Aceite:** efetivo e cada fonte aparecem separados; `has_*` é usado como verificação cruzada, nunca única explicação; privilégio extra, fonte não atribuível ou visibilidade parcial resulta em bloqueador.
+- **Riscos:** múltiplas fontes do mesmo privilégio, grants revogáveis/encadeados, diferença entre capability role-level e objeto, defaults.
+- **Fora:** mudar privilégios/roles; D-07/D-09 não ficam aprovadas pelo relatório.
+
+###### T-05.3-D5 — Journal e checkpoints
+
+- **Objetivo/escopo:** reconhecer estado sem journal, journal legítimo em andamento, completo, ausente após mutação, duplicado e divergente; validar estrutura/versão, transition id, fingerprint database, sequência/hash/eventos, identidade executora e cada efeito real em conjunto. O journal nunca prova etapa isoladamente.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`.
+- **Dependências:** D1, D2, D3 e D4 e aprovação explícita de D-06/D-10 antes da respectiva implementação. Não classificar journal especial antes de contrato aprovado.
+- **Testes PG16/Testcontainers:** ausência limpa; cada estado válido; cadeia quebrada, evento ausente/duplicado/reordenado, schema/coluna extra, journal de versão desconhecida, efeito sem evento, evento sem efeito, fingerprint/identity divergentes, transição completa alterada depois; conferir ACL de journal sem mutar.
+- **Aceite:** apenas formatos/estados aprovados reconhecidos; journal legítimo não vira estado inicial T-05.1; estado do journal corresponde a catálogo/efeitos reais; qualquer dúvida é UNKNOWN/REJECTED; inventário não insere/atualiza lock/evento.
+- **Riscos:** owner/superuser pode adulterar; hash encadeado não prova autenticidade, TOCTOU após fotografia; DDL Flyway e credenciais cruzam limites transacionais.
+- **Fora:** criar journal, executar checkpoints ou transição, implementar D-06/D-10 sem aprovação.
+
+###### T-05.3-D6 — Integridade de dados e evidências externas
+
+- **Objetivo/escopo:** reportar verificações internas e contrato separado de evidência externa. Inventário pode contar linhas em snapshot read-only, verificar constraints/órfãos conhecidos, sequences e Flyway; não afirmar preservação integral por contagens. Comparação integral antes/depois requer evidência/teste de integração ou mecanismo de digestão de dados aprovado, com proteção contra vazamento e avaliação de custo.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`; qualquer contrato de evidência externo permanece documental até autorização.
+- **Dependências:** D1/D4 para identidade/classes; a prova final integra D7. Evidência de backup/consumidores/corte não é inferida do catálogo.
+- **Testes PG16/Testcontainers:** contagens estáveis em snapshot; constraints válidas/inválidas; sequence state; auditoria append-only; Flyway; inserir/alterar dados entre snapshots para demonstrar que contagem isolada não prova igualdade; comparação antes/depois sem alteração pelo inventário.
+- **Aceite:** relatório separa executável, integração e operador; contagem não é declarada checksum; evidências externas têm tipo, referência não secreta, emissor, timestamp, estado e aprovação, sem senha/token/URL secreta; ausência bloqueia autorização operacional.
+- **Riscos:** custo de varredura, dados mudando durante janela, PII em digest/relatório, evidência externa desatualizada ou não autenticada.
+- **Fora:** backup/restore, corte de tráfego, validação de consumers reais ou armazenamento de credenciais pelo inventário.
+
+Contrato de evidência externa planejado: evidência de backup concluído e restauração testada (referência/escopo/data/resultado/operador); lista de consumidores/serviços revisada com versão e role utilizada; confirmação de distribuição protegida das credenciais e teste de autenticação sem revelar valor; janela de manutenção e controle de tráfego; confirmação de API antiga parada ou limitada a runtime; aprovação nominal do operador e evidência final de corte. Cada item é `NOT_PROVIDED`, `PROVIDED_UNVERIFIED`, `VERIFIED` ou `REJECTED`, com emissor, data e referência. O inventário apenas registra metadados não secretos fornecidos; não transforma declaração do operador em fato catalogal.
+
+###### T-05.3-D7 — Consolidação, classificação e relatório
+
+- **Objetivo/escopo:** integrar coletores D1–D6, esquema de relatório versionado, classificação fail-closed para os dois estados iniciais T-05.1 e, somente após autorização D-06/D-10, estados transientes reconhecidos; relatório explica evidência, lacunas e bloqueadores sem produzir mutação.
+- **Arquivos previstos:** `DatabaseInventoryCommand.java`, `JavaModernizationPlatformApplication.java` apenas se integração da entrada mudar, `DatabaseInventoryCommandIntegrationTest.java`, `inventory-usage.md`.
+- **Dependências:** D1–D6 concluídas e contratos D-06–D-10 explicitamente aprovados quando aplicáveis.
+- **Testes PG16/Testcontainers:** matriz completa T-05.1; combinações de dados ausentes/role/membership/ACL/ownership/journal; `UNKNOWN` versus `REJECTED`; relatório determinístico e sem segredo; teste de somente leitura comparando catalogs/dados/roles/grants/history antes/depois; principal de leitura sem visibilidade suficiente.
+- **Aceite:** cada capacidade obrigatória tem status/cobertura; nenhum `SUPPORTED_*` com campo obrigatório não verificado; estados iniciais não ampliados; código de saída/documentação coerentes; relatório não contém senha, verifier, token, URL com segredo ou valor de configuração sensível.
+- **Riscos:** inconsistência de snapshot entre conexões Flyway/JDBC, tamanho do relatório, compatibilidade do schema JSON e falso positivo por catálogo não visível.
+- **Fora:** iniciar transição, executar DDL/DML, ampliar matriz aprovada, tocar migrations ou credenciais.
+
+###### Sequência e dependências
+
+Sequência recomendada: **D1 → D2 e D4 (paralelizáveis após D1) → D3 (após D2+D4) → D5 (após D1–D4 e aprovação D-06/D-10) e D6 (pode evoluir em paralelo após D1/D4) → D7 (integra todos)**. D5 tem bloqueio de aprovação explícita mesmo se D1–D4 estiverem prontos. Cada tarefa futura requer autorização individual, plano de arquivos final e Testcontainers PostgreSQL 16. A execução de uma tarefa não aprova a seguinte.
+
+| Lacuna T-05.3-C | Responsável planejada | Severidade | Condição para fechar |
+|---|---|---|---|
+| Atributos incompletos, provisionadora não consultada, ausência/status ambíguos e config sensível | D1 | Bloqueadora | Nove atributos e principals relevantes, status/origem por campo, redaction e classificação cobertos. |
+| Memberships diretas apenas, sem caminho/opções efetivas | D2 | Bloqueadora | Grafo PG16 e paths SET/INHERIT/ADMIN verificados com fixtures. |
+| Efetivos sem proveniência, PUBLIC/defaults/ownership incompletos | D3 | Bloqueadora | Efetivo cruzado com ACL/grafo e fonte explicada. |
+| Database, classes, owner/ACL/dependências e OIDs parciais | D4 | Bloqueadora | Cobertura por classe e identidade/limitações; desconhecidos abortados. |
+| Journal não reconhecido e sem reconciliação checkpoint/efeito | D5 | Bloqueadora | Só após aprovação D-06/D-10; cenários válidos/inválidos testados. |
+| Contagens não provam preservação; backup/consumidores/corte externos | D6 | Importante para inventário, bloqueadora para aprovação operacional | Camadas de evidência separadas, comparação pós-etapa e prova externa rastreável. |
+| Relatório/classificador atual não compõe as novas evidências | D7 | Bloqueadora | Matriz ponta a ponta falha fechado e read-only verificada. |
+
+##### Estratégia comum de testes futuros e riscos
+
+Todos os testes de catálogo/semântica usam PostgreSQL 16 real por Testcontainers com banco descartável, principals/setup separados de runtime/migrator/bootstrap/provisionadora e credenciais efêmeras. Fixture é montada antes da chamada de inventário; a chamada do inventário roda read-only; snapshots antes/depois comparam dados, roles, memberships, ownership, ACLs, extensões, history e journal. Testes de autenticação/`SET ROLE` são conexões fixture separadas; nunca inserir segredo nos asserts/relatórios. Casos de erro de privilégio de leitura devem resultar em não verificável, não em estado seguro. Testes de transição, se autorizados futuramente, são projeto/tarefa separado em banco descartável, nunca prova por teste de inventário.
+
+Riscos transversais: privilégios de catálogo insuficientes podem ocultar objetos; crescimento/performance de graph e ACL queries; dados/DDL mudando após snapshot (TOCTOU); OIDs não são identidade global/perpétua; settings podem conter segredo; journal não resiste por si só a owner/superuser; checksum de dados pode vazar informação ou ser caro; estados de transição exigem aprovação e não podem ampliar silenciosamente T-05.1. Mitigar com status de cobertura, fingerprint, abortos, redaction, snapshots, fixture PG16 e revisão por subtarefa.
+
 ##### D-06 — Checkpoints e retomada
 
 Alternativas: (a) arquivo externo como fonte autoritativa — simples de arquivar, mas não pode fazer commit atômico com PostgreSQL; (b) tabela journal somente no banco — permite atomicidade, mas exige uma exceção estrita no inventário; (c) checkpoint por etapa transacional, combinado com exportação externa — mantém o estado do banco como fonte de verdade e o arquivo como evidência/cópia operacional. **Recomendação: (c).**
